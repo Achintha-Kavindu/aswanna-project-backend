@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import bodyParser from "body-parser";
 import userRouter from "./routes/userRoute.js";
+import offerRouter from "./routes/offerRoute.js";
 import galleryItemRouter from "./routes/galleryItemRoute.js";
 import jwt, { decode } from "jsonwebtoken";
 
@@ -44,6 +45,7 @@ mongoose
 
 app.use("/api/users", userRouter);
 app.use("/api/gallery", galleryItemRouter);
+app.use("/api/offers", offerRouter);
 
 app.listen(5000, (req, res) => {
   console.log("server is runing on port 5000");
