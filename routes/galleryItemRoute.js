@@ -1,21 +1,38 @@
-// galleryItemRoute.js
 import express from "express";
 import {
   postGalleryItem,
-  getGalleryItem,
   approveGalleryItem,
   deleteGalleryItem,
-  getPendingGalleryItems,
   getApprovedGalleryItems,
+  getPendingGalleryItems,
+  getGalleryItem,
+  updateGalleryItem,
+  getAllGalleryItems,
+  getMyGalleryItems,
+  getApprovedItemsByCategory,
 } from "../controllers/galleryItemControllers.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
 
-const galleryItemRouter = express.Router();
+const router = express.Router();
 
-galleryItemRouter.post("/", postGalleryItem);
-galleryItemRouter.get("/", getGalleryItem);
-galleryItemRouter.get("/approved", getApprovedGalleryItems); // Get approved items
-galleryItemRouter.get("/pending", getPendingGalleryItems); // Admin view pending
-galleryItemRouter.patch("/approve/:id", approveGalleryItem); // Admin approve
-galleryItemRouter.delete("/:id", deleteGalleryItem); // Admin delete
+// Create
+router.post("/create", authMiddleware, postGalleryItem);
 
-export default galleryItemRouter;
+// Read - specific routes first
+router.get("/category/:category", getApprovedItemsByCategory);
+router.get("/my-items", authMiddleware, getMyGalleryItems);
+router.get("/approved", getApprovedGalleryItems);
+router.get("/pending", authMiddleware, getPendingGalleryItems);
+router.get("/admin/items", authMiddleware, getAllGalleryItems);
+
+// Read - parameterized routes after
+router.get("/:id", getGalleryItem);
+
+// Update
+router.put("/approve/:id", authMiddleware, approveGalleryItem);
+router.put("/update/:id", authMiddleware, updateGalleryItem);
+
+// Delete
+router.delete("/delete/:id", authMiddleware, deleteGalleryItem);
+
+export default router;

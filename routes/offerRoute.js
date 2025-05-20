@@ -1,4 +1,3 @@
-// routes/offerRoute.js
 import express from "express";
 import {
   createOffer,
@@ -7,15 +6,30 @@ import {
   getApprovedOffers,
   getPendingOffers,
   getOffer,
+  getMyOffers,
+  updateOffer,
+  getAllOffers,
 } from "../controllers/offersControllers.js";
+import {
+  authMiddleware,
+  adminMiddleware,
+} from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.post("/", createOffer);
+// Public routes
 router.get("/approved", getApprovedOffers);
-router.get("/pending", getPendingOffers);
 router.get("/single", getOffer);
-router.patch("/approve/:id", approveOffer);
-router.delete("/:id", deleteOffer);
+router.get("/all", getAllOffers);
+
+// Protected routes requiring authentication
+router.post("/", authMiddleware, createOffer);
+router.get("/my-offers", authMiddleware, getMyOffers);
+router.put("/update/:id", authMiddleware, updateOffer);
+
+// Admin-only routes
+router.get("/pending", adminMiddleware, getPendingOffers);
+router.patch("/approve/:id", adminMiddleware, approveOffer);
+router.delete("/:id", adminMiddleware, deleteOffer);
 
 export default router;
