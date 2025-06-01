@@ -275,3 +275,44 @@ export async function getApprovedItemsByCategory(req, res) {
     });
   }
 }
+
+// Farmer can delete their own gallery items
+export async function deleteMyGalleryItem(req, res) {
+  const user = req.user;
+
+  if (!user) {
+    return res.status(403).json({ message: "Please login to delete items" });
+  }
+
+  const { id } = req.params;
+
+  try {
+    const item = await GalleryItem.findOne({ itemId: id });
+
+    if (!item) {
+      return res.status(404).json({ message: "Item not found" });
+    }
+
+    // Check ownership
+    if (
+      item.userId.toString() !== user._id.toString() &&
+      user.type !== "admin"
+    ) {
+      return res
+        .status(403)
+        .json({ message: "You can only delete your own items" });
+    }
+
+    const deletedItem = await GalleryItem.findOneAndDelete({ itemId: id });
+
+    res.status(200).json({
+      message: "Item deleted successfully",
+      deletedItem,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to delete item",
+      error: error.message,
+    });
+  }
+}

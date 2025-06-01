@@ -10,6 +10,7 @@ import {
   getAllGalleryItems,
   getMyGalleryItems,
   getApprovedItemsByCategory,
+  deleteMyGalleryItem,
 } from "../controllers/galleryItemControllers.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
@@ -34,5 +35,6 @@ router.put("/update/:id", authMiddleware, updateGalleryItem);
 
 // Delete
 router.delete("/delete/:id", authMiddleware, deleteGalleryItem);
+router.delete("/my-items/:id", authMiddleware, deleteMyGalleryItem);
 
 export default router;
