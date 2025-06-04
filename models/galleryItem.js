@@ -1,3 +1,4 @@
+// models/galleryItem.js - Add previousData field
 import mongoose from "mongoose";
 
 const galleryItemSchema = mongoose.Schema({
@@ -8,14 +9,24 @@ const galleryItemSchema = mongoose.Schema({
   location: { type: String, required: true },
   description: { type: String, required: true },
   harvestDay: { type: Date, required: true },
-  createdAt: { type: Date, default: Date.now }, // Added creation date
-  itemId: { type: Number, unique: true }, // Added custom numeric ID
+  createdAt: { type: Date, default: Date.now },
+  lastUpdated: { type: Date },
+  itemId: { type: Number, unique: true },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User", // Changed to singular "User" (common convention)
+    ref: "User",
     required: true,
   },
   status: { type: String, enum: ["pending", "approved"], default: "pending" },
+  // Add previous data tracking
+  previousData: { type: Object },
+  updateHistory: [
+    {
+      updatedAt: { type: Date, default: Date.now },
+      changes: { type: Object },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    },
+  ],
 });
 
 // Pre-save hook to generate custom numeric ID
@@ -32,5 +43,4 @@ galleryItemSchema.pre("save", async function (next) {
 });
 
 const GalleryItem = mongoose.model("GalleryItem", galleryItemSchema);
-
 export default GalleryItem;

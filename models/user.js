@@ -1,3 +1,4 @@
+// models/user.js
 import mongoose from "mongoose";
 
 const userSchema = mongoose.Schema({
@@ -14,6 +15,17 @@ const userSchema = mongoose.Schema({
   phone: { type: Number },
   type: { type: String, required: true, default: "buyer" },
   emailVerified: { type: Boolean, required: true, default: false },
+  // Add approval status
+  approvalStatus: {
+    type: String,
+    enum: ["pending", "approved", "rejected"],
+    default: "pending",
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  },
+  approvedAt: { type: Date },
 });
 
 const User = mongoose.model("user", userSchema);

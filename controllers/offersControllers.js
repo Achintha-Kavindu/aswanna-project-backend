@@ -26,7 +26,7 @@ export async function createOffer(req, res) {
 
     res.status(200).json({
       message: "Offer submitted for approval",
-      itemId: newOffer.itemId, // Return the generated numeric ID
+      itemId: newOffer.itemId,
     });
   } catch (error) {
     console.error("Error creating offer:", error);
@@ -49,7 +49,7 @@ export async function approveOffer(req, res) {
 
   try {
     const updatedItem = await Offer.findOneAndUpdate(
-      { itemId: id }, // Using itemId instead of _id
+      { itemId: id },
       { status: "approved" },
       { new: true }
     );
@@ -70,28 +70,25 @@ export async function approveOffer(req, res) {
   }
 }
 
-// Admin Delete Function
 export async function deleteOffer(req, res) {
   const user = req.user;
-
   if (!user || user.type !== "admin") {
     return res.status(403).json({ message: "Only admins can delete items" });
   }
-
   const { id } = req.params;
+  const numericId = Number(id);
 
   try {
-    const deletedItem = await Offer.findOneAndDelete({ itemId: id });
-
+    const deletedItem = await Offer.findOneAndDelete({ itemId: numericId });
     if (!deletedItem) {
       return res.status(404).json({ message: "Offer not found" });
     }
-
     res.status(200).json({
       message: "Offer deleted",
       deletedItem,
     });
   } catch (error) {
+    console.error("Delete error:", error);
     res.status(500).json({
       message: "Failed to delete item",
       error: error.message,
@@ -156,7 +153,7 @@ export async function getOffer(req, res) {
   }
 }
 
-// Update offer
+// controllers/offersControllers.js - Update function
 export async function updateOffer(req, res) {
   const user = req.user;
   if (!user) {
@@ -180,10 +177,24 @@ export async function updateOffer(req, res) {
       });
     }
 
+    // Store old data for comparison
+    const oldData = {
+      name: existingOffer.name,
+      price: existingOffer.price,
+      category: existingOffer.category,
+      location: existingOffer.location,
+      description: existingOffer.description,
+      harvestDay: existingOffer.harvestDay,
+      condition: existingOffer.condition,
+      image: existingOffer.image,
+    };
+
     let updateData = { ...req.body };
 
     if (user.type === "farmer") {
       updateData.status = "pending";
+      updateData.previousData = oldData;
+      updateData.lastUpdated = new Date();
     }
 
     const updatedOffer = await Offer.findOneAndUpdate(
@@ -195,9 +206,16 @@ export async function updateOffer(req, res) {
     res.status(200).json({
       message:
         user.type === "farmer"
-          ? "Offer updated and submitted for approval"
+          ? "Offer updated and submitted for admin approval"
           : "Offer updated successfully",
       offer: updatedOffer,
+      changes:
+        user.type === "farmer"
+          ? {
+              old: oldData,
+              new: req.body,
+            }
+          : null,
     });
   } catch (error) {
     res.status(500).json({
@@ -272,42 +290,40 @@ export async function getApprovedOffersByCategory(req, res) {
   }
 }
 
-// Farmer can delete their own offers
 export async function deleteMyOffer(req, res) {
   const user = req.user;
 
   if (!user) {
-    return res.status(403).json({ message: "Please login to delete offers" });
+    return res.status(403).json({ message: "Please log in." });
   }
 
-  const { id } = req.params;
+  const { itemId } = req.params;
 
   try {
-    const offer = await Offer.findOne({ itemId: id });
+    const offer = await Offer.findOne({ itemId: itemId });
 
     if (!offer) {
-      return res.status(404).json({ message: "Offer not found" });
+      return res.status(404).json({ message: "Offer not found." });
     }
 
-    // Check ownership
-    if (
-      offer.userId.toString() !== user._id.toString() &&
-      user.type !== "admin"
-    ) {
-      return res
-        .status(403)
-        .json({ message: "You can only delete your own offers" });
+    console.log("Offer User ID:", offer.userId.toString());
+    console.log("Request User ID:", user._id.toString());
+
+    if (offer.userId.toString() !== user._id.toString()) {
+      return res.status(403).json({
+        message: "You are not allowed to delete this offer.",
+      });
     }
 
-    const deletedOffer = await Offer.findOneAndDelete({ itemId: id });
+    const deletedOffer = await Offer.findOneAndDelete({ itemId: itemId });
 
     res.status(200).json({
-      message: "Offer deleted successfully",
+      message: "Offer successfully deleted.",
       deletedOffer,
     });
   } catch (error) {
     res.status(500).json({
-      message: "Failed to delete offer",
+      message: "Failed to delete offer.",
       error: error.message,
     });
   }

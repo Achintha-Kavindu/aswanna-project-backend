@@ -1,3 +1,4 @@
+// routes/galleryItemRoute.js - Route order is critical
 import express from "express";
 import {
   postGalleryItem,
@@ -19,14 +20,14 @@ const router = express.Router();
 // Create
 router.post("/create", authMiddleware, postGalleryItem);
 
-// Read - specific routes first
-router.get("/category/:category", getApprovedItemsByCategory);
-router.get("/my-items", authMiddleware, getMyGalleryItems);
+// Read - SPECIFIC routes FIRST (very important)
 router.get("/approved", getApprovedGalleryItems);
+router.get("/my-items", authMiddleware, getMyGalleryItems);
 router.get("/pending", authMiddleware, getPendingGalleryItems);
-router.get("/admin/items", authMiddleware, getAllGalleryItems);
+router.get("/admin/items", authMiddleware, getAllGalleryItems); // Admin route
+router.get("/category/:category", getApprovedItemsByCategory);
 
-// Read - parameterized routes after
+// Read - parameterized routes LAST
 router.get("/:id", getGalleryItem);
 
 // Update

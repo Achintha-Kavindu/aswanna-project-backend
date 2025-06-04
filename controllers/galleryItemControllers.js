@@ -158,13 +158,13 @@ export async function getGalleryItem(req, res) {
   }
 }
 
-// Update gallery item
+// controllers/galleryItemControllers.js - Update function with price tracking
 export async function updateGalleryItem(req, res) {
   const user = req.user;
   if (!user) {
-    return res
-      .status(403)
-      .json({ message: "Please login to update a gallery item" });
+    return res.status(403).json({
+      message: "Please login to update a gallery item",
+    });
   }
 
   const { id } = req.params;
@@ -184,10 +184,33 @@ export async function updateGalleryItem(req, res) {
       });
     }
 
+    // Store old data for comparison
+    const oldData = {
+      name: existingItem.name,
+      price: existingItem.price,
+      category: existingItem.category,
+      location: existingItem.location,
+      description: existingItem.description,
+      harvestDay: existingItem.harvestDay,
+      image: existingItem.image,
+    };
+
     let updateData = { ...req.body };
 
+    // If farmer updates, set status to pending and store previous data
     if (user.type === "farmer") {
       updateData.status = "pending";
+      updateData.previousData = oldData;
+      updateData.lastUpdated = new Date();
+
+      // Add to update history
+      updateData.$push = {
+        updateHistory: {
+          updatedAt: new Date(),
+          changes: req.body,
+          updatedBy: user._id,
+        },
+      };
     }
 
     const updatedItem = await GalleryItem.findOneAndUpdate(
@@ -199,9 +222,16 @@ export async function updateGalleryItem(req, res) {
     res.status(200).json({
       message:
         user.type === "farmer"
-          ? "Gallery item updated and submitted for approval"
+          ? "Gallery item updated and submitted for admin approval"
           : "Gallery item updated successfully",
       galleryItem: updatedItem,
+      changes:
+        user.type === "farmer"
+          ? {
+              old: oldData,
+              new: req.body,
+            }
+          : null,
     });
   } catch (error) {
     res.status(500).json({
@@ -233,17 +263,21 @@ export async function getAllGalleryItems(req, res) {
   }
 }
 
-// Get my gallery items
+// controllers/galleryItemControllers.js - Fix getMyGalleryItems
 export async function getMyGalleryItems(req, res) {
   const user = req.user;
+
   if (!user) {
-    return res
-      .status(403)
-      .json({ message: "Please login to access your gallery items" });
+    return res.status(403).json({
+      message: "Please login to access your gallery items",
+    });
   }
 
   try {
-    const myItems = await GalleryItem.find({ userId: user._id });
+    const myItems = await GalleryItem.find({ userId: user._id }).sort({
+      createdAt: -1,
+    });
+
     res.status(200).json({
       message: "Your gallery items retrieved successfully",
       galleryItems: myItems,

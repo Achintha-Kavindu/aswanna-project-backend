@@ -1,3 +1,4 @@
+// routes/userRoute.js
 import express from "express";
 import {
   createUser,
@@ -5,21 +6,21 @@ import {
   deleteUser,
   loginUser,
   getAllUsers,
-  getCurrentUserProfile,
-  updateUserProfile,
-  getUserProfile,
+  approveUser,
+  getPendingUsers,
 } from "../controllers/userControllers.js";
 import { authMiddleware } from "../middleware/authMiddleware.js";
 
 const userRouter = express.Router();
 
-userRouter.get("/profile", authMiddleware, getCurrentUserProfile);
-userRouter.put("/profile", authMiddleware, updateUserProfile);
-userRouter.get("/profile", authMiddleware, getUserProfile);
 userRouter.post("/", createUser);
 userRouter.get("/:id", getSingleUser);
 userRouter.delete("/:id", deleteUser);
 userRouter.post("/login", loginUser);
-userRouter.get("/", getAllUsers);
+userRouter.get("/", authMiddleware, getAllUsers);
+
+// New approval routes
+userRouter.get("/admin/pending", authMiddleware, getPendingUsers);
+userRouter.put("/admin/approve/:userId", authMiddleware, approveUser);
 
 export default userRouter;
