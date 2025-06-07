@@ -30,15 +30,17 @@ router.get("/pending", authMiddleware, adminMiddleware, getPendingOffers);
 router.get("/admin/all", authMiddleware, adminMiddleware, getAllOffers);
 router.get("/category/:category", getApprovedOffersByCategory);
 
-// Parameterized routes
-router.get("/:id", getOffer);
-
 // Update
 router.put("/approve/:id", authMiddleware, adminMiddleware, approveOffer);
 router.put("/update/:id", authMiddleware, updateOffer);
 
-// Delete
-router.delete("/my-offers/:itemId", authMiddleware, deleteMyOffer);
-router.delete("/admin/:id", authMiddleware, adminMiddleware, deleteOffer);
+// Delete routes - FIXED: Updated parameter names to match controllers
+router.delete("/delete/:id", authMiddleware, adminMiddleware, deleteOffer); // Admin delete
+router.delete("/my-offers/:id", authMiddleware, deleteMyOffer); // Farmer delete
+router.delete("/admin/:id", authMiddleware, adminMiddleware, deleteOffer); // Alternative admin delete
+router.delete("/:id", authMiddleware, adminMiddleware, deleteOffer); // Direct delete for admin panel
+
+// Parameterized routes (keep at end to avoid conflicts)
+router.get("/:id", getOffer);
 
 export default router;

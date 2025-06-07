@@ -338,425 +338,6 @@ userRouter.put("/admin/approve/:userId", authMiddleware, approveUser);
 export default userRouter;
 ```
 
-## File: controllers/offersControllers.js
-```javascript
-import Offer from "../models/offer.js";
-
-// Create offer with better error handling
-export async function createOffer(req, res) {
-  try {
-    const user = req.user;
-
-    console.log("Creating offer for user:", user?.firstName, user?.type); // Debug log
-
-    if (!user) {
-      return res.status(403).json({
-        success: false,
-        message: "Please login to create an offer",
-      });
-    }
-
-    if (user.type !== "farmer") {
-      return res.status(403).json({
-        success: false,
-        message:
-          "You are not authorized to create an offer. Only farmers can create offers.",
-      });
-    }
-
-    // Validate required fields
-    const { name, image, price, category, location, description, harvestDay } =
-      req.body;
-
-    if (
-      !name ||
-      !image ||
-      !price ||
-      !category ||
-      !location ||
-      !description ||
-      !harvestDay
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "All required fields must be provided",
-        required: [
-          "name",
-          "image",
-          "price",
-          "category",
-          "location",
-          "description",
-          "harvestDay",
-        ],
-      });
-    }
-
-    const offerData = {
-      ...req.body,
-      userId: user._id,
-      status: "pending",
-    };
-
-    console.log("Offer data:", offerData); // Debug log
-
-    const newOffer = new Offer(offerData);
-    await newOffer.save();
-
-    res.status(201).json({
-      success: true,
-      message: "Offer submitted for approval",
-      itemId: newOffer.itemId,
-      offer: newOffer,
-    });
-  } catch (error) {
-    console.error("Error creating offer:", error);
-    res.status(500).json({
-      success: false,
-      message: "Offer creation failed",
-      error: error.message,
-      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
-    });
-  }
-}
-
-// Continue with all other offer functions with similar improvements...
-export async function approveOffer(req, res) {
-  try {
-    const user = req.user;
-
-    if (!user || user.type !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Only admins can approve items",
-      });
-    }
-
-    const { id } = req.params;
-
-    const updatedItem = await Offer.findOneAndUpdate(
-      { itemId: id },
-      { status: "approved" },
-      { new: true }
-    );
-
-    if (!updatedItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Offer not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Offer approved",
-      offer: updatedItem,
-    });
-  } catch (error) {
-    console.error("Error approving offer:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to approve item",
-      error: error.message,
-    });
-  }
-}
-
-export async function deleteOffer(req, res) {
-  try {
-    const user = req.user;
-
-    if (!user || user.type !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Only admins can delete items",
-      });
-    }
-
-    const { id } = req.params;
-
-    const deletedItem = await Offer.findOneAndDelete({ itemId: id });
-
-    if (!deletedItem) {
-      return res.status(404).json({
-        success: false,
-        message: "Offer not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Offer deleted",
-      deletedItem,
-    });
-  } catch (error) {
-    console.error("Error deleting offer:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to delete item",
-      error: error.message,
-    });
-  }
-}
-
-export async function getApprovedOffers(req, res) {
-  try {
-    const offers = await Offer.find({ status: "approved" });
-    res.status(200).json({
-      success: true,
-      data: offers,
-    });
-  } catch (error) {
-    console.error("Error fetching approved offers:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch offers",
-      error: error.message,
-    });
-  }
-}
-
-export async function getPendingOffers(req, res) {
-  try {
-    const user = req.user;
-
-    if (!user || user.type !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Only admins can view pending items",
-      });
-    }
-
-    const pendingOffers = await Offer.find({ status: "pending" });
-    res.status(200).json({
-      success: true,
-      data: pendingOffers,
-    });
-  } catch (error) {
-    console.error("Error fetching pending offers:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch pending offers",
-      error: error.message,
-    });
-  }
-}
-
-export async function getOffer(req, res) {
-  try {
-    const { id } = req.params;
-
-    const offer = await Offer.findOne({ itemId: id });
-
-    if (!offer) {
-      return res.status(404).json({
-        success: false,
-        message: "Offer not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "Offer found successfully",
-      offer: offer,
-    });
-  } catch (error) {
-    console.error("Error fetching offer:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error fetching offer",
-      error: error.message,
-    });
-  }
-}
-
-export async function updateOffer(req, res) {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(403).json({
-        success: false,
-        message: "Please login to update an offer",
-      });
-    }
-
-    const { id } = req.params;
-
-    const existingOffer = await Offer.findOne({ itemId: id });
-
-    if (!existingOffer) {
-      return res.status(404).json({
-        success: false,
-        message: "Offer not found",
-      });
-    }
-
-    const isOwner = existingOffer.userId.toString() === user._id.toString();
-
-    if (user.type !== "admin" && !isOwner) {
-      return res.status(403).json({
-        success: false,
-        message: "You are not authorized to update this offer",
-      });
-    }
-
-    let updateData = { ...req.body };
-
-    if (user.type === "farmer") {
-      updateData.status = "pending";
-    }
-
-    const updatedOffer = await Offer.findOneAndUpdate(
-      { itemId: id },
-      updateData,
-      { new: true }
-    );
-
-    res.status(200).json({
-      success: true,
-      message:
-        user.type === "farmer"
-          ? "Offer updated and submitted for approval"
-          : "Offer updated successfully",
-      offer: updatedOffer,
-    });
-  } catch (error) {
-    console.error("Error updating offer:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to update offer",
-      error: error.message,
-    });
-  }
-}
-
-export async function getAllOffers(req, res) {
-  try {
-    const user = req.user;
-
-    if (!user || user.type !== "admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Only admins can access all offers",
-      });
-    }
-
-    const filter = req.query.status ? { status: req.query.status } : {};
-    const offers = await Offer.find(filter);
-    res.status(200).json({
-      success: true,
-      data: offers,
-    });
-  } catch (error) {
-    console.error("Error fetching all offers:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch offers",
-      error: error.message,
-    });
-  }
-}
-
-export async function getMyOffers(req, res) {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(403).json({
-        success: false,
-        message: "Please login to access your offers",
-      });
-    }
-
-    const myOffers = await Offer.find({ userId: user._id });
-    res.status(200).json({
-      success: true,
-      message: "Your offers retrieved successfully",
-      offers: myOffers,
-    });
-  } catch (error) {
-    console.error("Error fetching user offers:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to retrieve your offers",
-      error: error.message,
-    });
-  }
-}
-
-export async function getApprovedOffersByCategory(req, res) {
-  try {
-    const { category } = req.params;
-
-    const offers = await Offer.find({
-      status: "approved",
-      category: category.toLowerCase(),
-    });
-
-    res.status(200).json({
-      success: true,
-      data: offers,
-    });
-  } catch (error) {
-    console.error("Error fetching offers by category:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch offers by category",
-      error: error.message,
-    });
-  }
-}
-
-export async function deleteMyOffer(req, res) {
-  try {
-    const user = req.user;
-
-    if (!user) {
-      return res.status(403).json({
-        success: false,
-        message: "Please login to delete offers",
-      });
-    }
-
-    const { id } = req.params;
-
-    const offer = await Offer.findOne({ itemId: id });
-
-    if (!offer) {
-      return res.status(404).json({
-        success: false,
-        message: "Offer not found",
-      });
-    }
-
-    // Check ownership
-    if (
-      offer.userId.toString() !== user._id.toString() &&
-      user.type !== "admin"
-    ) {
-      return res.status(403).json({
-        success: false,
-        message: "You can only delete your own offers",
-      });
-    }
-
-    const deletedOffer = await Offer.findOneAndDelete({ itemId: id });
-
-    res.status(200).json({
-      success: true,
-      message: "Offer deleted successfully",
-      deletedOffer,
-    });
-  } catch (error) {
-    console.error("Error deleting offer:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to delete offer",
-      error: error.message,
-    });
-  }
-}
-```
-
 ## File: controllers/userControllers.js
 ```javascript
 // controllers/userControllers.js
@@ -1010,66 +591,6 @@ export async function deleteUser(req, res) {
 }
 ```
 
-## File: models/offer.js
-```javascript
-// models/offer.js
-import mongoose from "mongoose";
-
-const offerSchema = mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    image: { type: String, required: true },
-    price: { type: String, required: true },
-    condition: [{ type: String }],
-    category: { type: String, required: true },
-    location: { type: String, required: true },
-    description: { type: String, required: true },
-    harvestDay: { type: Date, required: true },
-    lastUpdated: { type: Date },
-    itemId: { type: Number, unique: true },
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    status: {
-      type: String,
-      enum: ["pending", "approved"],
-      default: "pending",
-    },
-    previousData: { type: Object }, // Store previous data for comparison
-    updateHistory: [
-      {
-        // Track update history
-        updatedAt: { type: Date, default: Date.now },
-        changes: { type: Object },
-        updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      },
-    ],
-  },
-  {
-    timestamps: true,
-  }
-);
-
-// Pre-save hook
-offerSchema.pre("save", async function (next) {
-  if (!this.isNew) return next();
-
-  try {
-    const count = await this.constructor.countDocuments();
-    this.itemId = 1400 + count + 1;
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-const Offer = mongoose.model("Offer", offerSchema);
-
-export default Offer;
-```
-
 ## File: routes/offerRoute.js
 ```javascript
 // routes/offerRoute.js
@@ -1104,16 +625,619 @@ router.get("/pending", authMiddleware, adminMiddleware, getPendingOffers);
 router.get("/admin/all", authMiddleware, adminMiddleware, getAllOffers);
 router.get("/category/:category", getApprovedOffersByCategory);
 
-// Parameterized routes
-router.get("/:id", getOffer);
-
 // Update
 router.put("/approve/:id", authMiddleware, adminMiddleware, approveOffer);
 router.put("/update/:id", authMiddleware, updateOffer);
 
+// Delete routes - FIXED: Updated parameter names to match controllers
+router.delete("/delete/:id", authMiddleware, adminMiddleware, deleteOffer); // Admin delete
+router.delete("/my-offers/:id", authMiddleware, deleteMyOffer); // Farmer delete
+router.delete("/admin/:id", authMiddleware, adminMiddleware, deleteOffer); // Alternative admin delete
+router.delete("/:id", authMiddleware, adminMiddleware, deleteOffer); // Direct delete for admin panel
+
+// Parameterized routes (keep at end to avoid conflicts)
+router.get("/:id", getOffer);
+
+export default router;
+```
+
+## File: controllers/offersControllers.js
+```javascript
+import Offer from "../models/offer.js";
+
+export async function createOffer(req, res) {
+  try {
+    console.log("Offer create - Starting creation process");
+    const user = req.user;
+
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to create an offer",
+      });
+    }
+
+    if (user.type !== "farmer") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are not authorized to create an offer. Only farmers can create offers.",
+      });
+    }
+
+    // Validation - image is optional
+    const { name, price, category, location, description, harvestDay } =
+      req.body;
+
+    if (
+      !name ||
+      !price ||
+      !category ||
+      !location ||
+      !description ||
+      !harvestDay
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be provided",
+        required: [
+          "name",
+          "price",
+          "category",
+          "location",
+          "description",
+          "harvestDay",
+        ],
+      });
+    }
+
+    // Create offer data
+    const offerData = {
+      name,
+      price,
+      category,
+      location,
+      description,
+      harvestDay,
+      condition: req.body.condition || [],
+      userId: user._id,
+      status: "pending",
+      // Image is optional - set default if not provided
+      image:
+        req.body.image ||
+        "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400",
+    };
+
+    console.log("Creating offer with data:", {
+      ...offerData,
+      image: offerData.image ? "IMAGE_PROVIDED" : "NO_IMAGE",
+    });
+
+    // Create and save the offer
+    const newOffer = new Offer(offerData);
+    await newOffer.save();
+
+    console.log("Offer created successfully with itemId:", newOffer.itemId);
+
+    res.status(201).json({
+      success: true,
+      message: "Offer submitted for approval",
+      itemId: newOffer.itemId,
+      offer: newOffer,
+    });
+  } catch (error) {
+    console.error("Offer create - Error:", error);
+
+    // Handle duplicate key error specifically
+    if (error.code === 11000 && error.keyPattern && error.keyPattern.itemId) {
+      return res.status(400).json({
+        success: false,
+        message: "Offer ID conflict. Please try again.",
+        error: "Duplicate itemId generated",
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Offer creation failed",
+      error: error.message,
+    });
+  }
+}
+
+export async function approveOffer(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can approve items",
+      });
+    }
+
+    const { id } = req.params;
+
+    const updatedItem = await Offer.findOneAndUpdate(
+      { itemId: id },
+      { status: "approved" },
+      { new: true }
+    );
+
+    if (!updatedItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Offer approved",
+      offer: updatedItem,
+    });
+  } catch (error) {
+    console.error("Error approving offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to approve item",
+      error: error.message,
+    });
+  }
+}
+
+export async function deleteOffer(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can delete items",
+      });
+    }
+
+    const { id } = req.params;
+    console.log("Admin deleting offer with id:", id);
+
+    // SIMPLE FIX: Only search by itemId (numeric)
+    const deletedItem = await Offer.findOneAndDelete({ itemId: parseInt(id) });
+
+    if (!deletedItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    console.log("Offer deleted successfully:", deletedItem.itemId);
+
+    res.status(200).json({
+      success: true,
+      message: "Offer deleted successfully",
+      deletedItem,
+    });
+  } catch (error) {
+    console.error("Error deleting offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete item",
+      error: error.message,
+    });
+  }
+}
+
+export async function getApprovedOffers(req, res) {
+  try {
+    const offers = await Offer.find({ status: "approved" });
+    res.status(200).json({
+      success: true,
+      data: offers,
+    });
+  } catch (error) {
+    console.error("Error fetching approved offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch offers",
+      error: error.message,
+    });
+  }
+}
+
+export async function getPendingOffers(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can view pending items",
+      });
+    }
+
+    const pendingOffers = await Offer.find({ status: "pending" });
+    res.status(200).json({
+      success: true,
+      data: pendingOffers,
+    });
+  } catch (error) {
+    console.error("Error fetching pending offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch pending offers",
+      error: error.message,
+    });
+  }
+}
+
+export async function getOffer(req, res) {
+  try {
+    const { id } = req.params;
+
+    // FIXED: Try both itemId and _id for better compatibility
+    const offer = await Offer.findOne({
+      $or: [{ itemId: id }, { _id: id }],
+    });
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Offer found successfully",
+      offer: offer,
+    });
+  } catch (error) {
+    console.error("Error fetching offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching offer",
+      error: error.message,
+    });
+  }
+}
+
+export async function updateOffer(req, res) {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to update an offer",
+      });
+    }
+
+    const { id } = req.params;
+
+    // FIXED: Try both itemId and _id for better compatibility
+    const existingOffer = await Offer.findOne({
+      $or: [{ itemId: id }, { _id: id }],
+    });
+
+    if (!existingOffer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    const isOwner = existingOffer.userId.toString() === user._id.toString();
+
+    if (user.type !== "admin" && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to update this offer",
+      });
+    }
+
+    let updateData = { ...req.body };
+
+    if (user.type === "farmer") {
+      updateData.status = "pending";
+    }
+
+    const updatedOffer = await Offer.findOneAndUpdate(
+      { $or: [{ itemId: id }, { _id: id }] },
+      updateData,
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message:
+        user.type === "farmer"
+          ? "Offer updated and submitted for approval"
+          : "Offer updated successfully",
+      offer: updatedOffer,
+    });
+  } catch (error) {
+    console.error("Error updating offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update offer",
+      error: error.message,
+    });
+  }
+}
+
+export async function getAllOffers(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can access all offers",
+      });
+    }
+
+    const filter = req.query.status ? { status: req.query.status } : {};
+    const offers = await Offer.find(filter);
+    res.status(200).json({
+      success: true,
+      data: offers,
+    });
+  } catch (error) {
+    console.error("Error fetching all offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch offers",
+      error: error.message,
+    });
+  }
+}
+
+export async function getMyOffers(req, res) {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to access your offers",
+      });
+    }
+
+    const myOffers = await Offer.find({ userId: user._id });
+    res.status(200).json({
+      success: true,
+      message: "Your offers retrieved successfully",
+      offers: myOffers,
+    });
+  } catch (error) {
+    console.error("Error fetching user offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve your offers",
+      error: error.message,
+    });
+  }
+}
+
+export async function getApprovedOffersByCategory(req, res) {
+  try {
+    const { category } = req.params;
+
+    const offers = await Offer.find({
+      status: "approved",
+      category: category.toLowerCase(),
+    });
+
+    res.status(200).json({
+      success: true,
+      data: offers,
+    });
+  } catch (error) {
+    console.error("Error fetching offers by category:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch offers by category",
+      error: error.message,
+    });
+  }
+}
+
+export async function deleteMyOffer(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to delete offers",
+      });
+    }
+
+    const { id } = req.params;
+    console.log("Farmer deleting own offer with id:", id);
+
+    // FIXED: Better query logic to handle both itemId and _id
+    let offer;
+
+    // First try to find by itemId (numeric)
+    if (!isNaN(id)) {
+      offer = await Offer.findOne({ itemId: parseInt(id) });
+    }
+
+    // If not found and id looks like ObjectId, try _id
+    if (!offer && id.match(/^[0-9a-fA-F]{24}$/)) {
+      offer = await Offer.findOne({ _id: id });
+    }
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    // Check ownership
+    if (
+      offer.userId.toString() !== user._id.toString() &&
+      user.type !== "admin"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only delete your own offers",
+      });
+    }
+
+    // Delete the offer using the same logic
+    let deletedOffer;
+    if (!isNaN(id)) {
+      deletedOffer = await Offer.findOneAndDelete({ itemId: parseInt(id) });
+    } else {
+      deletedOffer = await Offer.findOneAndDelete({ _id: id });
+    }
+
+    console.log("Offer deleted successfully:", deletedOffer.itemId);
+
+    res.status(200).json({
+      success: true,
+      message: "Offer deleted successfully",
+      deletedOffer,
+    });
+  } catch (error) {
+    console.error("Error deleting offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete offer",
+      error: error.message,
+    });
+  }
+}
+```
+
+## File: models/offer.js
+```javascript
+// models/offer.js
+import mongoose from "mongoose";
+
+const offerSchema = mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    image: { type: String, required: false }, // Optional
+    price: { type: String, required: true },
+    condition: [{ type: String }],
+    category: { type: String, required: true },
+    location: { type: String, required: true },
+    description: { type: String, required: true },
+    harvestDay: { type: Date, required: true },
+    lastUpdated: { type: Date },
+    itemId: { type: Number, unique: true },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "approved"],
+      default: "pending",
+    },
+    previousData: { type: Object },
+    updateHistory: [
+      {
+        updatedAt: { type: Date, default: Date.now },
+        changes: { type: Object },
+        updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      },
+    ],
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// FIXED: Improved pre-save hook with better error handling
+offerSchema.pre("save", async function (next) {
+  if (!this.isNew) return next();
+
+  try {
+    // Get the highest itemId and add 1
+    const lastOffer = await this.constructor.findOne(
+      {},
+      {},
+      { sort: { itemId: -1 } }
+    );
+
+    if (lastOffer && lastOffer.itemId) {
+      this.itemId = lastOffer.itemId + 1;
+    } else {
+      this.itemId = 1400; // Starting number
+    }
+
+    // Double-check for uniqueness
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.constructor.findOne({ itemId: this.itemId });
+      if (!existing) break;
+
+      this.itemId += 1;
+      attempts += 1;
+    }
+
+    if (attempts >= 10) {
+      throw new Error("Unable to generate unique itemId after 10 attempts");
+    }
+
+    console.log("Generated offer itemId:", this.itemId);
+    next();
+  } catch (error) {
+    console.error("Error generating offer itemId:", error);
+    next(error);
+  }
+});
+
+const Offer = mongoose.model("Offer", offerSchema);
+
+export default Offer;
+```
+
+## File: routes/galleryItemRoute.js
+```javascript
+// routes/galleryItemRoute.js - Route order is critical
+import express from "express";
+import {
+  postGalleryItem,
+  approveGalleryItem,
+  deleteGalleryItem,
+  getApprovedGalleryItems,
+  getPendingGalleryItems,
+  getGalleryItem,
+  updateGalleryItem,
+  getAllGalleryItems,
+  getMyGalleryItems,
+  getApprovedItemsByCategory,
+  deleteMyGalleryItem,
+} from "../controllers/galleryItemControllers.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
+
+const router = express.Router();
+
+// Create
+router.post("/create", authMiddleware, postGalleryItem);
+
+// Read - SPECIFIC routes FIRST (very important)
+router.get("/approved", getApprovedGalleryItems);
+router.get("/my-items", authMiddleware, getMyGalleryItems);
+router.get("/pending", authMiddleware, getPendingGalleryItems);
+router.get("/admin/items", authMiddleware, getAllGalleryItems); // Admin route
+router.get("/category/:category", getApprovedItemsByCategory);
+
+// Read - parameterized routes LAST
+router.get("/:id", getGalleryItem);
+
+// Update
+router.put("/approve/:id", authMiddleware, approveGalleryItem);
+router.put("/update/:id", authMiddleware, updateGalleryItem);
+
 // Delete
-router.delete("/my-offers/:itemId", authMiddleware, deleteMyOffer);
-router.delete("/admin/:id", authMiddleware, adminMiddleware, deleteOffer);
+router.delete("/delete/:id", authMiddleware, deleteGalleryItem);
+router.delete("/my-items/:id", authMiddleware, deleteMyGalleryItem);
 
 export default router;
 ```
@@ -1125,23 +1249,22 @@ import GalleryItem from "../models/galleryItem.js";
 export async function postGalleryItem(req, res) {
   try {
     console.log("Gallery create - Starting creation process");
-    console.log("Gallery create - Request user:", req.user);
-    console.log("Gallery create - Request body:", req.body);
 
+    // FIXED: Get user from req.user (set by auth middleware)
     const user = req.user;
+    console.log(
+      "Gallery create - User from middleware:",
+      user ? user.firstName : "No user"
+    );
 
     if (!user) {
-      console.log("Gallery create - No user found");
       return res.status(403).json({
         success: false,
         message: "Please login to create a gallery item",
       });
     }
 
-    console.log("Gallery create - User found:", user.firstName, user.type);
-
     if (user.type !== "farmer") {
-      console.log("Gallery create - User is not a farmer:", user.type);
       return res.status(403).json({
         success: false,
         message:
@@ -1149,60 +1272,59 @@ export async function postGalleryItem(req, res) {
       });
     }
 
-    // Validate required fields
-    const { name, image, price, category, location, description, harvestDay } =
+    // Validation - image is optional
+    const { name, price, category, location, description, harvestDay } =
       req.body;
 
     if (
       !name ||
-      !image ||
       !price ||
       !category ||
       !location ||
       !description ||
       !harvestDay
     ) {
-      console.log("Gallery create - Missing required fields");
       return res.status(400).json({
         success: false,
         message: "All required fields must be provided",
         required: [
           "name",
-          "image",
           "price",
           "category",
           "location",
           "description",
           "harvestDay",
         ],
-        received: {
-          name,
-          image: !!image,
-          price,
-          category,
-          location,
-          description,
-          harvestDay,
-        },
       });
     }
 
+    // FIXED: Better error handling for duplicate itemId
     const galleryItemData = {
-      ...req.body,
-      userId: user._id,
+      name: req.body.name,
+      price: req.body.price,
+      category: req.body.category,
+      location: req.body.location,
+      description: req.body.description,
+      harvestDay: req.body.harvestDay,
+      userId: user._id, // FIXED: Use user from req.user
       status: "pending",
+      // FIXED: Image is optional
+      image:
+        req.body.image ||
+        "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400",
     };
 
-    console.log("Gallery create - Creating item with data:", {
+    console.log("Creating gallery item with data:", {
       ...galleryItemData,
-      image: "IMAGE_DATA_PRESENT",
+      image: galleryItemData.image ? "IMAGE_PROVIDED" : "NO_IMAGE",
+      userId: user._id,
     });
 
     const newGalleryItem = new GalleryItem(galleryItemData);
     await newGalleryItem.save();
 
     console.log(
-      "Gallery create - Item created successfully:",
+      "Gallery item created successfully with itemId:",
       newGalleryItem.itemId
     );
 
@@ -1210,18 +1332,24 @@ export async function postGalleryItem(req, res) {
       success: true,
       message: "Gallery item submitted for approval",
       itemId: newGalleryItem.itemId,
-      galleryItem: {
-        ...newGalleryItem.toObject(),
-        image: "IMAGE_DATA_PRESENT", // Don't send full image data in response
-      },
+      galleryItem: newGalleryItem,
     });
   } catch (error) {
-    console.error("Gallery create - Error:", error);
+    console.error("Gallery create error:", error);
+
+    // ADDED: Handle duplicate key error specifically
+    if (error.code === 11000 && error.keyPattern && error.keyPattern.itemId) {
+      return res.status(400).json({
+        success: false,
+        message: "Item ID conflict. Please try again.",
+        error: "Duplicate itemId generated",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Gallery Item creation failed",
       error: error.message,
-      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
     });
   }
 }
@@ -1352,7 +1480,6 @@ export async function getPendingGalleryItems(req, res) {
 export async function getGalleryItem(req, res) {
   try {
     const { id } = req.params;
-
     const galleryItem = await GalleryItem.findOne({ itemId: id });
 
     if (!galleryItem) {
@@ -1525,7 +1652,6 @@ export async function deleteMyGalleryItem(req, res) {
     }
 
     const { id } = req.params;
-
     const item = await GalleryItem.findOne({ itemId: id });
 
     if (!item) {
@@ -1660,7 +1786,7 @@ import mongoose from "mongoose";
 
 const galleryItemSchema = mongoose.Schema({
   name: { type: String, required: true },
-  image: { type: String },
+  image: { type: String, required: false },
   price: { type: String, required: true },
   category: { type: String, required: true },
   location: { type: String, required: true },
@@ -1686,13 +1812,34 @@ const galleryItemSchema = mongoose.Schema({
   ],
 });
 
-// Pre-save hook to generate custom numeric ID
+// Current problematic pre-save hook
 galleryItemSchema.pre("save", async function (next) {
   if (!this.isNew) return next();
 
   try {
-    const count = await this.constructor.countDocuments();
-    this.itemId = 1400 + count + 1;
+    // FIXED: Better itemId generation
+    const lastItem = await this.constructor.findOne(
+      {},
+      {},
+      { sort: { itemId: -1 } }
+    );
+
+    if (lastItem && lastItem.itemId) {
+      this.itemId = lastItem.itemId + 1;
+    } else {
+      this.itemId = 1400; // Starting number
+    }
+
+    // ADDED: Double-check for uniqueness
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.constructor.findOne({ itemId: this.itemId });
+      if (!existing) break;
+
+      this.itemId += 1;
+      attempts += 1;
+    }
+
     next();
   } catch (error) {
     next(error);
@@ -1701,49 +1848,4 @@ galleryItemSchema.pre("save", async function (next) {
 
 const GalleryItem = mongoose.model("GalleryItem", galleryItemSchema);
 export default GalleryItem;
-```
-
-## File: routes/galleryItemRoute.js
-```javascript
-// routes/galleryItemRoute.js - Route order is critical
-import express from "express";
-import {
-  postGalleryItem,
-  approveGalleryItem,
-  deleteGalleryItem,
-  getApprovedGalleryItems,
-  getPendingGalleryItems,
-  getGalleryItem,
-  updateGalleryItem,
-  getAllGalleryItems,
-  getMyGalleryItems,
-  getApprovedItemsByCategory,
-  deleteMyGalleryItem,
-} from "../controllers/galleryItemControllers.js";
-import { authMiddleware } from "../middleware/authMiddleware.js";
-
-const router = express.Router();
-
-// Create
-router.post("/create", authMiddleware, postGalleryItem);
-
-// Read - SPECIFIC routes FIRST (very important)
-router.get("/approved", getApprovedGalleryItems);
-router.get("/my-items", authMiddleware, getMyGalleryItems);
-router.get("/pending", authMiddleware, getPendingGalleryItems);
-router.get("/admin/items", authMiddleware, getAllGalleryItems); // Admin route
-router.get("/category/:category", getApprovedItemsByCategory);
-
-// Read - parameterized routes LAST
-router.get("/:id", getGalleryItem);
-
-// Update
-router.put("/approve/:id", authMiddleware, approveGalleryItem);
-router.put("/update/:id", authMiddleware, updateGalleryItem);
-
-// Delete
-router.delete("/delete/:id", authMiddleware, deleteGalleryItem);
-router.delete("/my-items/:id", authMiddleware, deleteMyGalleryItem);
-
-export default router;
 ```

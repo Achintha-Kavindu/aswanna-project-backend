@@ -3,23 +3,22 @@ import GalleryItem from "../models/galleryItem.js";
 export async function postGalleryItem(req, res) {
   try {
     console.log("Gallery create - Starting creation process");
-    console.log("Gallery create - Request user:", req.user);
-    console.log("Gallery create - Request body:", req.body);
 
+    // FIXED: Get user from req.user (set by auth middleware)
     const user = req.user;
+    console.log(
+      "Gallery create - User from middleware:",
+      user ? user.firstName : "No user"
+    );
 
     if (!user) {
-      console.log("Gallery create - No user found");
       return res.status(403).json({
         success: false,
         message: "Please login to create a gallery item",
       });
     }
 
-    console.log("Gallery create - User found:", user.firstName, user.type);
-
     if (user.type !== "farmer") {
-      console.log("Gallery create - User is not a farmer:", user.type);
       return res.status(403).json({
         success: false,
         message:
@@ -27,60 +26,59 @@ export async function postGalleryItem(req, res) {
       });
     }
 
-    // Validate required fields
-    const { name, image, price, category, location, description, harvestDay } =
+    // Validation - image is optional
+    const { name, price, category, location, description, harvestDay } =
       req.body;
 
     if (
       !name ||
-      !image ||
       !price ||
       !category ||
       !location ||
       !description ||
       !harvestDay
     ) {
-      console.log("Gallery create - Missing required fields");
       return res.status(400).json({
         success: false,
         message: "All required fields must be provided",
         required: [
           "name",
-          "image",
           "price",
           "category",
           "location",
           "description",
           "harvestDay",
         ],
-        received: {
-          name,
-          image: !!image,
-          price,
-          category,
-          location,
-          description,
-          harvestDay,
-        },
       });
     }
 
+    // FIXED: Better error handling for duplicate itemId
     const galleryItemData = {
-      ...req.body,
-      userId: user._id,
+      name: req.body.name,
+      price: req.body.price,
+      category: req.body.category,
+      location: req.body.location,
+      description: req.body.description,
+      harvestDay: req.body.harvestDay,
+      userId: user._id, // FIXED: Use user from req.user
       status: "pending",
+      // FIXED: Image is optional
+      image:
+        req.body.image ||
+        "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400",
     };
 
-    console.log("Gallery create - Creating item with data:", {
+    console.log("Creating gallery item with data:", {
       ...galleryItemData,
-      image: "IMAGE_DATA_PRESENT",
+      image: galleryItemData.image ? "IMAGE_PROVIDED" : "NO_IMAGE",
+      userId: user._id,
     });
 
     const newGalleryItem = new GalleryItem(galleryItemData);
     await newGalleryItem.save();
 
     console.log(
-      "Gallery create - Item created successfully:",
+      "Gallery item created successfully with itemId:",
       newGalleryItem.itemId
     );
 
@@ -88,18 +86,24 @@ export async function postGalleryItem(req, res) {
       success: true,
       message: "Gallery item submitted for approval",
       itemId: newGalleryItem.itemId,
-      galleryItem: {
-        ...newGalleryItem.toObject(),
-        image: "IMAGE_DATA_PRESENT", // Don't send full image data in response
-      },
+      galleryItem: newGalleryItem,
     });
   } catch (error) {
-    console.error("Gallery create - Error:", error);
+    console.error("Gallery create error:", error);
+
+    // ADDED: Handle duplicate key error specifically
+    if (error.code === 11000 && error.keyPattern && error.keyPattern.itemId) {
+      return res.status(400).json({
+        success: false,
+        message: "Item ID conflict. Please try again.",
+        error: "Duplicate itemId generated",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Gallery Item creation failed",
       error: error.message,
-      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
     });
   }
 }
@@ -230,7 +234,6 @@ export async function getPendingGalleryItems(req, res) {
 export async function getGalleryItem(req, res) {
   try {
     const { id } = req.params;
-
     const galleryItem = await GalleryItem.findOne({ itemId: id });
 
     if (!galleryItem) {
@@ -403,7 +406,6 @@ export async function deleteMyGalleryItem(req, res) {
     }
 
     const { id } = req.params;
-
     const item = await GalleryItem.findOne({ itemId: id });
 
     if (!item) {

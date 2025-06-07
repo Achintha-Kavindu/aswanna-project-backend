@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 const offerSchema = mongoose.Schema(
   {
     name: { type: String, required: true },
-    image: { type: String, required: false },
+    image: { type: String, required: false }, // Optional
     price: { type: String, required: true },
     condition: [{ type: String }],
     category: { type: String, required: true },
@@ -23,10 +23,9 @@ const offerSchema = mongoose.Schema(
       enum: ["pending", "approved"],
       default: "pending",
     },
-    previousData: { type: Object }, // Store previous data for comparison
+    previousData: { type: Object },
     updateHistory: [
       {
-        // Track update history
         updatedAt: { type: Date, default: Date.now },
         changes: { type: Object },
         updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -38,15 +37,42 @@ const offerSchema = mongoose.Schema(
   }
 );
 
-// Pre-save hook
+// FIXED: Improved pre-save hook with better error handling
 offerSchema.pre("save", async function (next) {
   if (!this.isNew) return next();
 
   try {
-    const count = await this.constructor.countDocuments();
-    this.itemId = 1400 + count + 1;
+    // Get the highest itemId and add 1
+    const lastOffer = await this.constructor.findOne(
+      {},
+      {},
+      { sort: { itemId: -1 } }
+    );
+
+    if (lastOffer && lastOffer.itemId) {
+      this.itemId = lastOffer.itemId + 1;
+    } else {
+      this.itemId = 1400; // Starting number
+    }
+
+    // Double-check for uniqueness
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.constructor.findOne({ itemId: this.itemId });
+      if (!existing) break;
+
+      this.itemId += 1;
+      attempts += 1;
+    }
+
+    if (attempts >= 10) {
+      throw new Error("Unable to generate unique itemId after 10 attempts");
+    }
+
+    console.log("Generated offer itemId:", this.itemId);
     next();
   } catch (error) {
+    console.error("Error generating offer itemId:", error);
     next(error);
   }
 });

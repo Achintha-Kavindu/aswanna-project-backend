@@ -1,11 +1,9 @@
 import Offer from "../models/offer.js";
 
-// Create offer with better error handling
 export async function createOffer(req, res) {
   try {
+    console.log("Offer create - Starting creation process");
     const user = req.user;
-
-    console.log("Creating offer for user:", user?.firstName, user?.type); // Debug log
 
     if (!user) {
       return res.status(403).json({
@@ -22,13 +20,12 @@ export async function createOffer(req, res) {
       });
     }
 
-    // Validate required fields
-    const { name, image, price, category, location, description, harvestDay } =
+    // Validation - image is optional
+    const { name, price, category, location, description, harvestDay } =
       req.body;
 
     if (
       !name ||
-      !image ||
       !price ||
       !category ||
       !location ||
@@ -40,7 +37,6 @@ export async function createOffer(req, res) {
         message: "All required fields must be provided",
         required: [
           "name",
-          "image",
           "price",
           "category",
           "location",
@@ -50,16 +46,33 @@ export async function createOffer(req, res) {
       });
     }
 
+    // Create offer data
     const offerData = {
-      ...req.body,
+      name,
+      price,
+      category,
+      location,
+      description,
+      harvestDay,
+      condition: req.body.condition || [],
       userId: user._id,
       status: "pending",
+      // Image is optional - set default if not provided
+      image:
+        req.body.image ||
+        "https://images.unsplash.com/photo-1542838132-92c53300491e?w=400",
     };
 
-    console.log("Offer data:", offerData); // Debug log
+    console.log("Creating offer with data:", {
+      ...offerData,
+      image: offerData.image ? "IMAGE_PROVIDED" : "NO_IMAGE",
+    });
 
+    // Create and save the offer
     const newOffer = new Offer(offerData);
     await newOffer.save();
+
+    console.log("Offer created successfully with itemId:", newOffer.itemId);
 
     res.status(201).json({
       success: true,
@@ -68,17 +81,25 @@ export async function createOffer(req, res) {
       offer: newOffer,
     });
   } catch (error) {
-    console.error("Error creating offer:", error);
+    console.error("Offer create - Error:", error);
+
+    // Handle duplicate key error specifically
+    if (error.code === 11000 && error.keyPattern && error.keyPattern.itemId) {
+      return res.status(400).json({
+        success: false,
+        message: "Offer ID conflict. Please try again.",
+        error: "Duplicate itemId generated",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Offer creation failed",
       error: error.message,
-      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
     });
   }
 }
 
-// Continue with all other offer functions with similar improvements...
 export async function approveOffer(req, res) {
   try {
     const user = req.user;
@@ -132,8 +153,10 @@ export async function deleteOffer(req, res) {
     }
 
     const { id } = req.params;
+    console.log("Admin deleting offer with id:", id);
 
-    const deletedItem = await Offer.findOneAndDelete({ itemId: id });
+    // SIMPLE FIX: Only search by itemId (numeric)
+    const deletedItem = await Offer.findOneAndDelete({ itemId: parseInt(id) });
 
     if (!deletedItem) {
       return res.status(404).json({
@@ -142,9 +165,11 @@ export async function deleteOffer(req, res) {
       });
     }
 
+    console.log("Offer deleted successfully:", deletedItem.itemId);
+
     res.status(200).json({
       success: true,
-      message: "Offer deleted",
+      message: "Offer deleted successfully",
       deletedItem,
     });
   } catch (error) {
@@ -204,7 +229,10 @@ export async function getOffer(req, res) {
   try {
     const { id } = req.params;
 
-    const offer = await Offer.findOne({ itemId: id });
+    // FIXED: Try both itemId and _id for better compatibility
+    const offer = await Offer.findOne({
+      $or: [{ itemId: id }, { _id: id }],
+    });
 
     if (!offer) {
       return res.status(404).json({
@@ -240,7 +268,10 @@ export async function updateOffer(req, res) {
 
     const { id } = req.params;
 
-    const existingOffer = await Offer.findOne({ itemId: id });
+    // FIXED: Try both itemId and _id for better compatibility
+    const existingOffer = await Offer.findOne({
+      $or: [{ itemId: id }, { _id: id }],
+    });
 
     if (!existingOffer) {
       return res.status(404).json({
@@ -265,7 +296,7 @@ export async function updateOffer(req, res) {
     }
 
     const updatedOffer = await Offer.findOneAndUpdate(
-      { itemId: id },
+      { $or: [{ itemId: id }, { _id: id }] },
       updateData,
       { new: true }
     );
@@ -376,8 +407,20 @@ export async function deleteMyOffer(req, res) {
     }
 
     const { id } = req.params;
+    console.log("Farmer deleting own offer with id:", id);
 
-    const offer = await Offer.findOne({ itemId: id });
+    // FIXED: Better query logic to handle both itemId and _id
+    let offer;
+
+    // First try to find by itemId (numeric)
+    if (!isNaN(id)) {
+      offer = await Offer.findOne({ itemId: parseInt(id) });
+    }
+
+    // If not found and id looks like ObjectId, try _id
+    if (!offer && id.match(/^[0-9a-fA-F]{24}$/)) {
+      offer = await Offer.findOne({ _id: id });
+    }
 
     if (!offer) {
       return res.status(404).json({
@@ -397,7 +440,15 @@ export async function deleteMyOffer(req, res) {
       });
     }
 
-    const deletedOffer = await Offer.findOneAndDelete({ itemId: id });
+    // Delete the offer using the same logic
+    let deletedOffer;
+    if (!isNaN(id)) {
+      deletedOffer = await Offer.findOneAndDelete({ itemId: parseInt(id) });
+    } else {
+      deletedOffer = await Offer.findOneAndDelete({ _id: id });
+    }
+
+    console.log("Offer deleted successfully:", deletedOffer.itemId);
 
     res.status(200).json({
       success: true,

@@ -29,13 +29,34 @@ const galleryItemSchema = mongoose.Schema({
   ],
 });
 
-// Pre-save hook to generate custom numeric ID
+// Current problematic pre-save hook
 galleryItemSchema.pre("save", async function (next) {
   if (!this.isNew) return next();
 
   try {
-    const count = await this.constructor.countDocuments();
-    this.itemId = 1400 + count + 1;
+    // FIXED: Better itemId generation
+    const lastItem = await this.constructor.findOne(
+      {},
+      {},
+      { sort: { itemId: -1 } }
+    );
+
+    if (lastItem && lastItem.itemId) {
+      this.itemId = lastItem.itemId + 1;
+    } else {
+      this.itemId = 1400; // Starting number
+    }
+
+    // ADDED: Double-check for uniqueness
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.constructor.findOne({ itemId: this.itemId });
+      if (!existing) break;
+
+      this.itemId += 1;
+      attempts += 1;
+    }
+
     next();
   } catch (error) {
     next(error);
