@@ -464,3 +464,45 @@ export async function deleteMyOffer(req, res) {
     });
   }
 }
+
+// Add this function to your existing offersControllers.js
+
+export async function getOfferById(req, res) {
+  try {
+    const { id } = req.params;
+    console.log("Getting offer by id:", id);
+
+    // FIXED: Better query logic to handle both itemId and _id
+    let offer;
+
+    // First try to find by itemId (numeric)
+    if (!isNaN(id)) {
+      offer = await Offer.findOne({ itemId: parseInt(id) });
+    }
+
+    // If not found and id looks like ObjectId, try _id
+    if (!offer && id.match(/^[0-9a-fA-F]{24}$/)) {
+      offer = await Offer.findOne({ _id: id });
+    }
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Offer found successfully",
+      offer: offer,
+    });
+  } catch (error) {
+    console.error("Error fetching offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching offer",
+      error: error.message,
+    });
+  }
+}

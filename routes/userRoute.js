@@ -9,18 +9,25 @@ import {
   approveUser,
   getPendingUsers,
 } from "../controllers/userControllers.js";
-import { authMiddleware } from "../middleware/authMiddleware.js";
+import {
+  adminMiddleware,
+  authMiddleware,
+} from "../middleware/authMiddleware.js";
 
 const userRouter = express.Router();
 
+// Public routes
 userRouter.post("/", createUser);
+userRouter.post("/login", loginUser);
+
+// Protected routes
+userRouter.get("/", authMiddleware, getAllUsers);
 userRouter.get("/:id", getSingleUser);
 userRouter.delete("/:id", deleteUser);
-userRouter.post("/login", loginUser);
-userRouter.get("/", authMiddleware, getAllUsers);
 
-// New approval routes
+// Admin approval routes - FIXED: Correct route order and parameters
 userRouter.get("/admin/pending", authMiddleware, getPendingUsers);
 userRouter.put("/admin/approve/:userId", authMiddleware, approveUser);
+userRouter.put("/approve/:id", authMiddleware, adminMiddleware, approveUser); // FIXED: This matches frontend call
 
 export default userRouter;

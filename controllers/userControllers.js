@@ -103,41 +103,54 @@ export async function loginUser(req, res) {
   }
 }
 
-// Approve user function (admin only)
+// FIXED: Approve user function with correct parameter handling
 export async function approveUser(req, res) {
-  const adminUser = req.user;
-
-  if (!adminUser || adminUser.type !== "admin") {
-    return res.status(403).json({
-      message: "Only admins can approve users",
-    });
-  }
-
-  const { userId } = req.params;
-  const { action } = req.body; // "approve" or "reject"
-
   try {
+    const adminUser = req.user;
+
+    if (!adminUser || adminUser.type !== "admin") {
+      return res.status(403).json({
+        message: "Only admins can approve users",
+      });
+    }
+
+    // FIXED: Get id from params (matching the route)
+    const { id, userId } = req.params;
+    const targetUserId = id || userId; // Handle both parameter names
+
+    console.log("Approving user:", targetUserId);
+
+    // FIXED: Simple approval without requiring action in body
     const updateData = {
-      approvalStatus: action === "approve" ? "approved" : "rejected",
+      approvalStatus: "approved",
+      emailVerified: true, // Also set emailVerified for compatibility
       approvedBy: adminUser.id,
       approvedAt: new Date(),
     };
 
-    const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
+    const updatedUser = await User.findByIdAndUpdate(targetUserId, updateData, {
       new: true,
     }).select("-password");
 
     if (!updatedUser) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
+    console.log("User approved successfully:", updatedUser.email);
+
     res.status(200).json({
-      message: `User ${action}d successfully`,
+      success: true,
+      message: "User approved successfully",
       user: updatedUser,
     });
   } catch (error) {
+    console.error("Error approving user:", error);
     res.status(500).json({
-      message: "Failed to update user approval status",
+      success: false,
+      message: "Failed to approve user",
       error: error.message,
     });
   }
@@ -184,11 +197,13 @@ export async function getAllUsers(req, res) {
     const users = await User.find({}).select("-password");
 
     res.status(200).json({
+      success: true, // FIXED: Add success field for consistency
       message: "All users retrieved successfully",
       users: users,
     });
   } catch (error) {
     res.status(500).json({
+      success: false,
       message: "Failed to get users",
       error: error.message,
     });

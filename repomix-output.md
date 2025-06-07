@@ -321,19 +321,26 @@ import {
   approveUser,
   getPendingUsers,
 } from "../controllers/userControllers.js";
-import { authMiddleware } from "../middleware/authMiddleware.js";
+import {
+  adminMiddleware,
+  authMiddleware,
+} from "../middleware/authMiddleware.js";
 
 const userRouter = express.Router();
 
+// Public routes
 userRouter.post("/", createUser);
+userRouter.post("/login", loginUser);
+
+// Protected routes
+userRouter.get("/", authMiddleware, getAllUsers);
 userRouter.get("/:id", getSingleUser);
 userRouter.delete("/:id", deleteUser);
-userRouter.post("/login", loginUser);
-userRouter.get("/", authMiddleware, getAllUsers);
 
-// New approval routes
+// Admin approval routes - FIXED: Correct route order and parameters
 userRouter.get("/admin/pending", authMiddleware, getPendingUsers);
 userRouter.put("/admin/approve/:userId", authMiddleware, approveUser);
+userRouter.put("/approve/:id", authMiddleware, adminMiddleware, approveUser); // FIXED: This matches frontend call
 
 export default userRouter;
 ```
@@ -445,41 +452,54 @@ export async function loginUser(req, res) {
   }
 }
 
-// Approve user function (admin only)
+// FIXED: Approve user function with correct parameter handling
 export async function approveUser(req, res) {
-  const adminUser = req.user;
-
-  if (!adminUser || adminUser.type !== "admin") {
-    return res.status(403).json({
-      message: "Only admins can approve users",
-    });
-  }
-
-  const { userId } = req.params;
-  const { action } = req.body; // "approve" or "reject"
-
   try {
+    const adminUser = req.user;
+
+    if (!adminUser || adminUser.type !== "admin") {
+      return res.status(403).json({
+        message: "Only admins can approve users",
+      });
+    }
+
+    // FIXED: Get id from params (matching the route)
+    const { id, userId } = req.params;
+    const targetUserId = id || userId; // Handle both parameter names
+
+    console.log("Approving user:", targetUserId);
+
+    // FIXED: Simple approval without requiring action in body
     const updateData = {
-      approvalStatus: action === "approve" ? "approved" : "rejected",
+      approvalStatus: "approved",
+      emailVerified: true, // Also set emailVerified for compatibility
       approvedBy: adminUser.id,
       approvedAt: new Date(),
     };
 
-    const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
+    const updatedUser = await User.findByIdAndUpdate(targetUserId, updateData, {
       new: true,
     }).select("-password");
 
     if (!updatedUser) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
 
+    console.log("User approved successfully:", updatedUser.email);
+
     res.status(200).json({
-      message: `User ${action}d successfully`,
+      success: true,
+      message: "User approved successfully",
       user: updatedUser,
     });
   } catch (error) {
+    console.error("Error approving user:", error);
     res.status(500).json({
-      message: "Failed to update user approval status",
+      success: false,
+      message: "Failed to approve user",
       error: error.message,
     });
   }
@@ -526,11 +546,13 @@ export async function getAllUsers(req, res) {
     const users = await User.find({}).select("-password");
 
     res.status(200).json({
+      success: true, // FIXED: Add success field for consistency
       message: "All users retrieved successfully",
       users: users,
     });
   } catch (error) {
     res.status(500).json({
+      success: false,
       message: "Failed to get users",
       error: error.message,
     });
@@ -591,6 +613,51 @@ export async function deleteUser(req, res) {
 }
 ```
 
+## File: routes/galleryItemRoute.js
+```javascript
+// routes/galleryItemRoute.js - Route order is critical
+import express from "express";
+import {
+  postGalleryItem,
+  approveGalleryItem,
+  deleteGalleryItem,
+  getApprovedGalleryItems,
+  getPendingGalleryItems,
+  getGalleryItem,
+  updateGalleryItem,
+  getAllGalleryItems,
+  getMyGalleryItems,
+  getApprovedItemsByCategory,
+  deleteMyGalleryItem,
+} from "../controllers/galleryItemControllers.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
+
+const router = express.Router();
+
+// Create
+router.post("/create", authMiddleware, postGalleryItem);
+
+// Read - SPECIFIC routes FIRST (very important)
+router.get("/approved", getApprovedGalleryItems);
+router.get("/my-items", authMiddleware, getMyGalleryItems);
+router.get("/pending", authMiddleware, getPendingGalleryItems);
+router.get("/admin/items", authMiddleware, getAllGalleryItems); // Admin route
+router.get("/category/:category", getApprovedItemsByCategory);
+
+// Read - parameterized routes LAST
+router.get("/:id", getGalleryItem);
+
+// Update
+router.put("/approve/:id", authMiddleware, approveGalleryItem);
+router.put("/update/:id", authMiddleware, updateGalleryItem);
+
+// Delete
+router.delete("/delete/:id", authMiddleware, deleteGalleryItem);
+router.delete("/my-items/:id", authMiddleware, deleteMyGalleryItem);
+
+export default router;
+```
+
 ## File: routes/offerRoute.js
 ```javascript
 // routes/offerRoute.js
@@ -607,6 +674,7 @@ import {
   getAllOffers,
   getApprovedOffersByCategory,
   deleteMyOffer,
+  getOfferById,
 } from "../controllers/offersControllers.js";
 import {
   authMiddleware,
@@ -637,6 +705,7 @@ router.delete("/:id", authMiddleware, adminMiddleware, deleteOffer); // Direct d
 
 // Parameterized routes (keep at end to avoid conflicts)
 router.get("/:id", getOffer);
+router.get("/:id", getOfferById);
 
 export default router;
 ```
@@ -1109,6 +1178,137 @@ export async function deleteMyOffer(req, res) {
     });
   }
 }
+
+// Add this function to your existing offersControllers.js
+
+export async function getOfferById(req, res) {
+  try {
+    const { id } = req.params;
+    console.log("Getting offer by id:", id);
+
+    // FIXED: Better query logic to handle both itemId and _id
+    let offer;
+
+    // First try to find by itemId (numeric)
+    if (!isNaN(id)) {
+      offer = await Offer.findOne({ itemId: parseInt(id) });
+    }
+
+    // If not found and id looks like ObjectId, try _id
+    if (!offer && id.match(/^[0-9a-fA-F]{24}$/)) {
+      offer = await Offer.findOne({ _id: id });
+    }
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Offer found successfully",
+      offer: offer,
+    });
+  } catch (error) {
+    console.error("Error fetching offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching offer",
+      error: error.message,
+    });
+  }
+}
+```
+
+## File: index.js
+```javascript
+import express from "express";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+import cors from "cors";
+import bodyParser from "body-parser";
+import userRouter from "./routes/userRoute.js";
+import offerRouter from "./routes/offerRoute.js";
+import galleryItemRouter from "./routes/galleryItemRoute.js";
+import jwt from "jsonwebtoken";
+import User from "./models/user.js";
+
+dotenv.config();
+
+const app = express();
+
+app.use(cors());
+app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
+
+const connectionString = process.env.MONGODB_URL;
+
+// Global middleware for token parsing (improved)
+app.use(async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split(" ")[1];
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_KEY);
+      console.log("Global middleware - Decoded token:", decoded);
+
+      // Find the actual user from database
+      const user = await User.findById(decoded.id).select("-password");
+
+      if (user) {
+        req.user = user;
+        console.log(
+          "Global middleware - User found:",
+          user.firstName,
+          user.type
+        );
+      } else {
+        console.log("Global middleware - User not found in database");
+      }
+    } catch (error) {
+      console.log(
+        "Global middleware - Token verification failed:",
+        error.message
+      );
+    }
+  }
+
+  next();
+});
+
+mongoose
+  .connect(connectionString)
+  .then(() => {
+    console.log("Database connected successfully");
+  })
+  .catch((error) => {
+    console.log("Database connection error:", error);
+  });
+
+app.use("/api/users", userRouter);
+app.use("/api/gallery", galleryItemRouter);
+app.use("/api/offers", offerRouter);
+
+// Global error handler
+app.use((error, req, res, next) => {
+  console.error("Global error handler:", error);
+  res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error:
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "Something went wrong",
+  });
+});
+
+app.listen(5000, () => {
+  console.log("Server is running on port 5000");
+});
 ```
 
 ## File: models/offer.js
@@ -1195,51 +1395,6 @@ offerSchema.pre("save", async function (next) {
 const Offer = mongoose.model("Offer", offerSchema);
 
 export default Offer;
-```
-
-## File: routes/galleryItemRoute.js
-```javascript
-// routes/galleryItemRoute.js - Route order is critical
-import express from "express";
-import {
-  postGalleryItem,
-  approveGalleryItem,
-  deleteGalleryItem,
-  getApprovedGalleryItems,
-  getPendingGalleryItems,
-  getGalleryItem,
-  updateGalleryItem,
-  getAllGalleryItems,
-  getMyGalleryItems,
-  getApprovedItemsByCategory,
-  deleteMyGalleryItem,
-} from "../controllers/galleryItemControllers.js";
-import { authMiddleware } from "../middleware/authMiddleware.js";
-
-const router = express.Router();
-
-// Create
-router.post("/create", authMiddleware, postGalleryItem);
-
-// Read - SPECIFIC routes FIRST (very important)
-router.get("/approved", getApprovedGalleryItems);
-router.get("/my-items", authMiddleware, getMyGalleryItems);
-router.get("/pending", authMiddleware, getPendingGalleryItems);
-router.get("/admin/items", authMiddleware, getAllGalleryItems); // Admin route
-router.get("/category/:category", getApprovedItemsByCategory);
-
-// Read - parameterized routes LAST
-router.get("/:id", getGalleryItem);
-
-// Update
-router.put("/approve/:id", authMiddleware, approveGalleryItem);
-router.put("/update/:id", authMiddleware, updateGalleryItem);
-
-// Delete
-router.delete("/delete/:id", authMiddleware, deleteGalleryItem);
-router.delete("/my-items/:id", authMiddleware, deleteMyGalleryItem);
-
-export default router;
 ```
 
 ## File: controllers/galleryItemControllers.js
@@ -1688,95 +1843,6 @@ export async function deleteMyGalleryItem(req, res) {
     });
   }
 }
-```
-
-## File: index.js
-```javascript
-import express from "express";
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-import cors from "cors";
-import bodyParser from "body-parser";
-import userRouter from "./routes/userRoute.js";
-import offerRouter from "./routes/offerRoute.js";
-import galleryItemRouter from "./routes/galleryItemRoute.js";
-import jwt from "jsonwebtoken";
-import User from "./models/user.js";
-
-dotenv.config();
-
-const app = express();
-
-app.use(cors());
-app.use(bodyParser.json({ limit: "50mb" }));
-app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
-
-const connectionString = process.env.MONGODB_URL;
-
-// Global middleware for token parsing (improved)
-app.use(async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.split(" ")[1];
-
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_KEY);
-      console.log("Global middleware - Decoded token:", decoded);
-
-      // Find the actual user from database
-      const user = await User.findById(decoded.id).select("-password");
-
-      if (user) {
-        req.user = user;
-        console.log(
-          "Global middleware - User found:",
-          user.firstName,
-          user.type
-        );
-      } else {
-        console.log("Global middleware - User not found in database");
-      }
-    } catch (error) {
-      console.log(
-        "Global middleware - Token verification failed:",
-        error.message
-      );
-    }
-  }
-
-  next();
-});
-
-mongoose
-  .connect(connectionString)
-  .then(() => {
-    console.log("Database connected successfully");
-  })
-  .catch((error) => {
-    console.log("Database connection error:", error);
-  });
-
-app.use("/api/users", userRouter);
-app.use("/api/gallery", galleryItemRouter);
-app.use("/api/offers", offerRouter);
-
-// Global error handler
-app.use((error, req, res, next) => {
-  console.error("Global error handler:", error);
-  res.status(500).json({
-    success: false,
-    message: "Internal server error",
-    error:
-      process.env.NODE_ENV === "development"
-        ? error.message
-        : "Something went wrong",
-  });
-});
-
-app.listen(5000, () => {
-  console.log("Server is running on port 5000");
-});
 ```
 
 ## File: models/galleryItem.js

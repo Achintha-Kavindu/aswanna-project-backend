@@ -12,6 +12,7 @@ import {
   getAllOffers,
   getApprovedOffersByCategory,
   deleteMyOffer,
+  getOfferById,
 } from "../controllers/offersControllers.js";
 import {
   authMiddleware,
@@ -42,5 +43,6 @@ router.delete("/:id", authMiddleware, adminMiddleware, deleteOffer); // Direct d
 
 // Parameterized routes (keep at end to avoid conflicts)
 router.get("/:id", getOffer);
+router.get("/:id", getOfferById);
 
 export default router;
