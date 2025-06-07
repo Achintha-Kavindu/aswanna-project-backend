@@ -102,6 +102,13 @@ routes/userRoute.js
 }
 ```
 
+## File: .gitignore
+```
+node_modules
+package-lock.json
+.env
+```
+
 ## File: middleware/authMiddleware.js
 ```javascript
 import jwt from "jsonwebtoken";
@@ -109,67 +116,126 @@ import User from "../models/user.js";
 
 export const authMiddleware = async (req, res, next) => {
   try {
+    console.log("Auth middleware - Starting authentication check");
+
+    // Check if user is already set by global middleware
+    if (req.user) {
+      console.log(
+        "Auth middleware - User already authenticated:",
+        req.user.firstName,
+        req.user.type
+      );
+      return next();
+    }
+
     // Get token from the Authorization header
     const authHeader = req.headers.authorization;
 
-    // Check if auth header exists and has the right format
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ message: "Authentication required" });
+      console.log("Auth middleware - No valid authorization header");
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required. Please provide a valid token.",
+      });
     }
 
-    // Extract the token
     const token = authHeader.split(" ")[1];
 
     if (!token) {
-      return res.status(401).json({ message: "No token provided" });
+      console.log("Auth middleware - No token provided");
+      return res.status(401).json({
+        success: false,
+        message: "No token provided",
+      });
     }
 
     try {
-      // Verify the token (you'll need to set JWT_SECRET in your environment variables)
+      // Verify the token
       const decoded = jwt.verify(token, process.env.JWT_KEY);
+      console.log("Auth middleware - Token decoded:", decoded);
 
       // Find the user by id
-      const user = await User.findById(decoded.id);
+      const user = await User.findById(decoded.id).select("-password");
 
       if (!user) {
-        return res.status(401).json({ message: "User not found" });
+        console.log("Auth middleware - User not found for ID:", decoded.id);
+        return res.status(401).json({
+          success: false,
+          message: "User not found. Please login again.",
+        });
       }
 
       // Add user to request object
       req.user = user;
+      console.log(
+        "Auth middleware - User authenticated:",
+        user.firstName,
+        user.type
+      );
       next();
-    } catch (error) {
-      return res.status(401).json({ message: "Invalid token" });
+    } catch (jwtError) {
+      console.error("Auth middleware - JWT verification error:", jwtError);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired token. Please login again.",
+      });
     }
   } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: error.message });
+    console.error("Auth middleware - General error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error in authentication",
+      error: error.message,
+    });
   }
 };
 
-// Optional: middleware specifically for checking admin access
 export const adminMiddleware = async (req, res, next) => {
   try {
-    // Call the auth middleware first to set the user
-    authMiddleware(req, res, () => {
-      // Check if user is admin
-      if (req.user && req.user.type === "admin") {
-        next();
-      } else {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-    });
+    console.log("Admin middleware - Checking admin access");
+
+    // Ensure user is authenticated first
+    if (!req.user) {
+      // Run auth middleware first
+      return authMiddleware(req, res, () => {
+        if (req.user && req.user.type === "admin") {
+          console.log("Admin middleware - Admin access granted");
+          next();
+        } else {
+          console.log("Admin middleware - Admin access denied");
+          return res.status(403).json({
+            success: false,
+            message: "Admin access required",
+          });
+        }
+      });
+    }
+
+    // Check if user is admin
+    if (req.user.type === "admin") {
+      console.log("Admin middleware - Admin access granted");
+      next();
+    } else {
+      console.log("Admin middleware - Admin access denied");
+      return res.status(403).json({
+        success: false,
+        message: "Admin access required",
+      });
+    }
   } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: error.message });
+    console.error("Admin middleware - Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error in admin authentication",
+      error: error.message,
+    });
   }
 };
 ```
 
 ## File: models/user.js
 ```javascript
+// models/user.js
 import mongoose from "mongoose";
 
 const userSchema = mongoose.Schema({
@@ -186,928 +252,22 @@ const userSchema = mongoose.Schema({
   phone: { type: Number },
   type: { type: String, required: true, default: "buyer" },
   emailVerified: { type: Boolean, required: true, default: false },
+  // Add approval status
+  approvalStatus: {
+    type: String,
+    enum: ["pending", "approved", "rejected"],
+    default: "pending",
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+  },
+  approvedAt: { type: Date },
 });
 
 const User = mongoose.model("user", userSchema);
 
 export default User;
-```
-
-## File: routes/userRoute.js
-```javascript
-import express from "express";
-import {
-  createUser,
-  getSingleUser,
-  deleteUser,
-  loginUser,
-  getAllUsers,
-} from "../controllers/userControllers.js";
-
-const userRouter = express.Router();
-
-userRouter.post("/", createUser);
-userRouter.get("/:id", getSingleUser);
-userRouter.delete("/:id", deleteUser);
-userRouter.post("/login", loginUser);
-userRouter.get("/", getAllUsers);
-
-export default userRouter;
-```
-
-## File: .gitignore
-```
-node_modules
-package-lock.json
-.env
-```
-
-## File: controllers/offersControllers.js
-```javascript
-import Offer from "../models/offer.js";
-
-// Create offer
-export async function createOffer(req, res) {
-  const user = req.user;
-
-  if (!user) {
-    return res.status(403).json({ message: "Please login to create an offer" });
-  }
-
-  if (user.type !== "farmer") {
-    return res
-      .status(403)
-      .json({ message: "You are not authorized to create an offer" });
-  }
-
-  const offerData = {
-    ...req.body,
-    userId: user._id,
-    status: "pending",
-  };
-
-  try {
-    const newOffer = new Offer(offerData);
-    await newOffer.save();
-
-    res.status(200).json({
-      message: "Offer submitted for approval",
-      itemId: newOffer.itemId, // Return the generated numeric ID
-    });
-  } catch (error) {
-    console.error("Error creating offer:", error);
-    res.status(500).json({
-      message: "Offer creation failed",
-      error: error.message,
-    });
-  }
-}
-
-// Admin Approval Function
-export async function approveOffer(req, res) {
-  const user = req.user;
-
-  if (!user || user.type !== "admin") {
-    return res.status(403).json({ message: "Only admins can approve items" });
-  }
-
-  const { id } = req.params;
-
-  try {
-    const updatedItem = await Offer.findOneAndUpdate(
-      { itemId: id }, // Using itemId instead of _id
-      { status: "approved" },
-      { new: true }
-    );
-
-    if (!updatedItem) {
-      return res.status(404).json({ message: "Offer not found" });
-    }
-
-    res.status(200).json({
-      message: "Offer approved",
-      offer: updatedItem,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to approve item",
-      error: error.message,
-    });
-  }
-}
-
-// Admin Delete Function
-export async function deleteOffer(req, res) {
-  const user = req.user;
-
-  if (!user || user.type !== "admin") {
-    return res.status(403).json({ message: "Only admins can delete items" });
-  }
-
-  const { id } = req.params;
-
-  try {
-    const deletedItem = await Offer.findOneAndDelete({ itemId: id });
-
-    if (!deletedItem) {
-      return res.status(404).json({ message: "Offer not found" });
-    }
-
-    res.status(200).json({
-      message: "Offer deleted",
-      deletedItem,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to delete item",
-      error: error.message,
-    });
-  }
-}
-
-// Show only approved offers to users
-export async function getApprovedOffers(req, res) {
-  try {
-    const offers = await Offer.find({ status: "approved" });
-    res.status(200).json(offers);
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch offers",
-      error: error.message,
-    });
-  }
-}
-
-// Get pending offers for admin review
-export async function getPendingOffers(req, res) {
-  const user = req.user;
-
-  if (!user || user.type !== "admin") {
-    return res
-      .status(403)
-      .json({ message: "Only admins can view pending items" });
-  }
-
-  try {
-    const pendingOffers = await Offer.find({ status: "pending" });
-    res.status(200).json(pendingOffers);
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch pending offers",
-      error: error.message,
-    });
-  }
-}
-
-// Get offer by ID (using itemId)
-export async function getOffer(req, res) {
-  const { id } = req.params;
-
-  try {
-    const offer = await Offer.findOne({ itemId: id });
-
-    if (!offer) {
-      return res.status(404).json({ message: "Offer not found" });
-    }
-
-    res.status(200).json({
-      message: "Offer found successfully",
-      offer: offer,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Error fetching offer",
-      error: error.message,
-    });
-  }
-}
-
-// Update offer
-export async function updateOffer(req, res) {
-  const user = req.user;
-  if (!user) {
-    return res.status(403).json({ message: "Please login to update an offer" });
-  }
-
-  const { id } = req.params;
-
-  try {
-    const existingOffer = await Offer.findOne({ itemId: id });
-
-    if (!existingOffer) {
-      return res.status(404).json({ message: "Offer not found" });
-    }
-
-    const isOwner = existingOffer.userId.toString() === user._id.toString();
-
-    if (user.type !== "admin" && !isOwner) {
-      return res.status(403).json({
-        message: "You are not authorized to update this offer",
-      });
-    }
-
-    let updateData = { ...req.body };
-
-    if (user.type === "farmer") {
-      updateData.status = "pending";
-    }
-
-    const updatedOffer = await Offer.findOneAndUpdate(
-      { itemId: id },
-      updateData,
-      { new: true }
-    );
-
-    res.status(200).json({
-      message:
-        user.type === "farmer"
-          ? "Offer updated and submitted for approval"
-          : "Offer updated successfully",
-      offer: updatedOffer,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to update offer",
-      error: error.message,
-    });
-  }
-}
-
-// Get all offers (admin only)
-export async function getAllOffers(req, res) {
-  const user = req.user;
-
-  if (!user || user.type !== "admin") {
-    return res.status(403).json({
-      message: "Only admins can access all offers",
-    });
-  }
-
-  try {
-    const filter = req.query.status ? { status: req.query.status } : {};
-    const offers = await Offer.find(filter);
-    res.status(200).json(offers);
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch offers",
-      error: error.message,
-    });
-  }
-}
-
-// Get my offers
-export async function getMyOffers(req, res) {
-  const user = req.user;
-  if (!user) {
-    return res
-      .status(403)
-      .json({ message: "Please login to access your offers" });
-  }
-
-  try {
-    const myOffers = await Offer.find({ userId: user._id });
-    res.status(200).json({
-      message: "Your offers retrieved successfully",
-      offers: myOffers,
-    });
-  } catch (error) {
-    console.error("Error fetching user offers:", error);
-    res.status(500).json({
-      message: "Failed to retrieve your offers",
-      error: error.message,
-    });
-  }
-}
-
-// Get approved offers by category (public)
-export async function getApprovedOffersByCategory(req, res) {
-  const { category } = req.params;
-
-  try {
-    const offers = await Offer.find({
-      status: "approved",
-      category: category.toLowerCase(),
-    });
-
-    res.status(200).json(offers);
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch offers by category",
-      error: error.message,
-    });
-  }
-}
-
-// Farmer can delete their own offers
-export async function deleteMyOffer(req, res) {
-  const user = req.user;
-
-  if (!user) {
-    return res.status(403).json({ message: "Please login to delete offers" });
-  }
-
-  const { id } = req.params;
-
-  try {
-    const offer = await Offer.findOne({ itemId: id });
-
-    if (!offer) {
-      return res.status(404).json({ message: "Offer not found" });
-    }
-
-    // Check ownership
-    if (
-      offer.userId.toString() !== user._id.toString() &&
-      user.type !== "admin"
-    ) {
-      return res
-        .status(403)
-        .json({ message: "You can only delete your own offers" });
-    }
-
-    const deletedOffer = await Offer.findOneAndDelete({ itemId: id });
-
-    res.status(200).json({
-      message: "Offer deleted successfully",
-      deletedOffer,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to delete offer",
-      error: error.message,
-    });
-  }
-}
-```
-
-## File: controllers/userControllers.js
-```javascript
-import { response } from "express";
-import User from "../models/user.js";
-import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-// create user function
-export async function createUser(req, res) {
-  const user = req.body;
-
-  const password = req.body.password;
-
-  const saltRounds = 10;
-
-  const passwordHash = bcrypt.hashSync(password, saltRounds);
-
-  user.password = passwordHash;
-
-  const newUser = new User(user);
-
-  try {
-    await newUser.save();
-    console.log("user created successfully");
-    res.status(200).json({ massage: "user created successfully" });
-  } catch (error) {
-    console.log("user created failed");
-    res.status(400).json({ massage: "user creation failed", error: error });
-  }
-}
-
-// Get single user by ID
-export async function getSingleUser(req, res) {
-  try {
-    const user = await User.findById(req.params.id).select(
-      "-password -refreshToken -__v"
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      user,
-    });
-  } catch (error) {
-    console.error("User fetch error:", error);
-    res.status(400).json({
-      success: false,
-      message: "Invalid user ID",
-      error: error.message,
-    });
-  }
-}
-
-// Delete user (Admin only)
-export async function deleteUser(req, res) {
-  try {
-    const deletedUser = await User.findByIdAndDelete(req.params.id);
-
-    if (!deletedUser) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "User deleted successfully",
-    });
-  } catch (error) {
-    console.error("User deletion error:", error);
-    res.status(400).json({
-      success: false,
-      message: "User deletion failed",
-      error: error.message,
-    });
-  }
-}
-
-// login user
-export async function loginUser(req, res) {
-  const credentials = req.body;
-
-  try {
-    const user = await User.findOne({
-      email: credentials.email,
-    });
-
-    if (!user) {
-      return res.status(404).json({ massage: "user not found" });
-    }
-
-    const isMatch = bcrypt.compareSync(credentials.password, user.password);
-
-    if (!isMatch) {
-      return res.status(401).json({ message: "Invalid password" });
-    }
-
-    const payload = {
-      id: user._id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      type: user.type,
-    };
-
-    const token = jwt.sign(payload, process.env.JWT_KEY, { expiresIn: "48h" });
-    return res
-      .status(200)
-      .json({ massage: "user  found", user: user, token: token });
-  } catch (error) {
-    res.status(400).json({ massage: "user getting error", error: error });
-  }
-}
-
-// Get all users (admin only)
-
-export async function getAllUsers(req, res) {
-  const user = req.user;
-
-  // Check if user exists and is an admin
-  if (!user || user.type !== "admin") {
-    return res.status(403).json({
-      message: "Only admins can access all users",
-    });
-  }
-
-  try {
-    // Get all users from the database
-    const users = await User.find({}).select("-password -img"); // Exclude passwords from the results for security
-
-    // Return the list of users
-    res.status(200).json({
-      message: "All users retrieved successfully",
-      users: users,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to get users",
-      error: error.message,
-    });
-  }
-}
-```
-
-## File: models/offer.js
-```javascript
-import mongoose from "mongoose";
-
-const offerSchema = mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    image: { type: String, required: true },
-    price: { type: String, required: true },
-    condition: [{ type: String }], // Preserved from original offer schema
-    category: { type: String, required: true },
-    location: { type: String, required: true },
-    description: { type: String, required: true },
-    harvestDay: { type: Date, required: true }, // Added from gallery schema
-    itemId: { type: Number, unique: true }, // Added numeric ID system
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User", // Changed to singular "User" to match gallery
-      required: true, // Made required like in gallery
-    },
-    status: {
-      type: String,
-      enum: ["pending", "approved"],
-      default: "pending",
-    },
-  },
-  {
-    timestamps: true, // Keeps automatic createdAt/updatedAt
-  }
-);
-
-// Add the same ID generation middleware as gallery
-offerSchema.pre("save", async function (next) {
-  if (!this.isNew) return next();
-
-  try {
-    const count = await this.constructor.countDocuments();
-    this.itemId = 1400 + count + 1;
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Changed model name to singular "Offer" (more conventional)
-const Offer = mongoose.model("Offer", offerSchema);
-
-export default Offer;
-```
-
-## File: routes/offerRoute.js
-```javascript
-import express from "express";
-import {
-  createOffer,
-  approveOffer,
-  deleteOffer,
-  getApprovedOffers,
-  getPendingOffers,
-  getOffer,
-  getMyOffers,
-  updateOffer,
-  getAllOffers,
-  getApprovedOffersByCategory,
-  deleteMyOffer,
-} from "../controllers/offersControllers.js";
-import {
-  authMiddleware,
-  adminMiddleware,
-} from "../middleware/authMiddleware.js";
-
-const router = express.Router();
-
-// Public routes
-router.get("/approved", getApprovedOffers);
-router.get("/category/:category", getApprovedOffersByCategory);
-router.get("/pending", authMiddleware, adminMiddleware, getPendingOffers);
-
-// Protected routes requiring authentication
-router.post("/", authMiddleware, createOffer);
-router.get("/my-offers", authMiddleware, getMyOffers);
-router.put("/update/:id", authMiddleware, updateOffer);
-
-router.get("/:id", getOffer); // Changed from /single to use itemId
-
-// Admin-only routes
-router.get("/admin/all", authMiddleware, adminMiddleware, getAllOffers);
-router.put("/approve/:id", authMiddleware, adminMiddleware, approveOffer);
-router.delete("/:id", authMiddleware, adminMiddleware, deleteOffer);
-router.delete("/my-offers/:id", authMiddleware, deleteMyOffer);
-
-export default router;
-```
-
-## File: controllers/galleryItemControllers.js
-```javascript
-import GalleryItem from "../models/galleryItem.js";
-
-// Create gallery item
-export async function postGalleryItem(req, res) {
-  const user = req.user;
-
-  if (!user) {
-    return res
-      .status(403)
-      .json({ message: "Please login to create a gallery item" });
-  }
-
-  if (user.type !== "farmer") {
-    return res
-      .status(403)
-      .json({ message: "You are not authorized to create a gallery item" });
-  }
-
-  const galleryItemData = {
-    ...req.body,
-    userId: user._id,
-    status: "pending",
-  };
-
-  try {
-    const newGalleryItem = new GalleryItem(galleryItemData);
-    await newGalleryItem.save();
-
-    res.status(200).json({
-      message: "Gallery item submitted for approval",
-      itemId: newGalleryItem.itemId, // Return the generated ID
-    });
-  } catch (error) {
-    console.error("Error creating gallery item:", error);
-    res.status(500).json({
-      message: "Gallery Item creation failed",
-      error: error.message,
-    });
-  }
-}
-
-// Admin Approval Function
-export async function approveGalleryItem(req, res) {
-  const user = req.user;
-
-  if (!user || user.type !== "admin") {
-    return res.status(403).json({ message: "Only admins can approve items" });
-  }
-
-  const { id } = req.params;
-
-  try {
-    const updatedItem = await GalleryItem.findOneAndUpdate(
-      { itemId: id }, // Changed to use itemId instead of _id
-      { status: "approved" },
-      { new: true }
-    );
-
-    if (!updatedItem) {
-      return res.status(404).json({ message: "Gallery item not found" });
-    }
-
-    res.status(200).json({
-      message: "Gallery item approved",
-      galleryItem: updatedItem,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to approve item",
-      error: error.message,
-    });
-  }
-}
-
-// Admin Delete Function
-export async function deleteGalleryItem(req, res) {
-  const user = req.user;
-
-  if (!user || user.type !== "admin") {
-    return res.status(403).json({ message: "Only admins can delete items" });
-  }
-
-  const { id } = req.params;
-
-  try {
-    const deletedItem = await GalleryItem.findOneAndDelete({ itemId: id });
-
-    if (!deletedItem) {
-      return res.status(404).json({ message: "Gallery item not found" });
-    }
-
-    res.status(200).json({
-      message: "Gallery item deleted",
-      deletedItem,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to delete item",
-      error: error.message,
-    });
-  }
-}
-
-// Show only approved items to users
-export async function getApprovedGalleryItems(req, res) {
-  try {
-    const items = await GalleryItem.find({ status: "approved" });
-    res.status(200).json(items);
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch items",
-      error: error.message,
-    });
-  }
-}
-
-// Get pending items for admin review
-export async function getPendingGalleryItems(req, res) {
-  const user = req.user;
-
-  if (!user || user.type !== "admin") {
-    return res
-      .status(403)
-      .json({ message: "Only admins can view pending items" });
-  }
-
-  try {
-    const pendingItems = await GalleryItem.find({ status: "pending" });
-    res.status(200).json(pendingItems);
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch pending items",
-      error: error.message,
-    });
-  }
-}
-
-// Get gallery item by ID (updated to use itemId)
-export async function getGalleryItem(req, res) {
-  const { id } = req.params;
-
-  try {
-    const galleryItem = await GalleryItem.findOne({ itemId: id });
-
-    if (!galleryItem) {
-      return res.status(404).json({ message: "Gallery Item not found" });
-    }
-
-    res.status(200).json({
-      message: "Gallery Item found successfully",
-      galleryItem: galleryItem,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Gallery Item getting error",
-      error: error.message,
-    });
-  }
-}
-
-// Update gallery item
-export async function updateGalleryItem(req, res) {
-  const user = req.user;
-  if (!user) {
-    return res
-      .status(403)
-      .json({ message: "Please login to update a gallery item" });
-  }
-
-  const { id } = req.params;
-
-  try {
-    const existingItem = await GalleryItem.findOne({ itemId: id });
-
-    if (!existingItem) {
-      return res.status(404).json({ message: "Gallery item not found" });
-    }
-
-    const isOwner = existingItem.userId.toString() === user._id.toString();
-
-    if (user.type !== "admin" && !isOwner) {
-      return res.status(403).json({
-        message: "You are not authorized to update this gallery item",
-      });
-    }
-
-    let updateData = { ...req.body };
-
-    if (user.type === "farmer") {
-      updateData.status = "pending";
-    }
-
-    const updatedItem = await GalleryItem.findOneAndUpdate(
-      { itemId: id },
-      updateData,
-      { new: true }
-    );
-
-    res.status(200).json({
-      message:
-        user.type === "farmer"
-          ? "Gallery item updated and submitted for approval"
-          : "Gallery item updated successfully",
-      galleryItem: updatedItem,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to update gallery item",
-      error: error.message,
-    });
-  }
-}
-
-// Get all gallery items (admin only)
-export async function getAllGalleryItems(req, res) {
-  const user = req.user;
-
-  if (!user || user.type !== "admin") {
-    return res.status(403).json({
-      message: "Only admins can access all gallery items",
-    });
-  }
-
-  try {
-    const filter = req.query.status ? { status: req.query.status } : {};
-    const items = await GalleryItem.find(filter);
-    res.status(200).json(items);
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch gallery items",
-      error: error.message,
-    });
-  }
-}
-
-// Get my gallery items
-export async function getMyGalleryItems(req, res) {
-  const user = req.user;
-  if (!user) {
-    return res
-      .status(403)
-      .json({ message: "Please login to access your gallery items" });
-  }
-
-  try {
-    const myItems = await GalleryItem.find({ userId: user._id });
-    res.status(200).json({
-      message: "Your gallery items retrieved successfully",
-      galleryItems: myItems,
-    });
-  } catch (error) {
-    console.error("Error fetching user gallery items:", error);
-    res.status(500).json({
-      message: "Failed to retrieve your gallery items",
-      error: error.message,
-    });
-  }
-}
-
-// Get approved items by category (public)
-export async function getApprovedItemsByCategory(req, res) {
-  const { category } = req.params;
-
-  try {
-    const items = await GalleryItem.find({
-      status: "approved",
-      category: category.toLowerCase(),
-    });
-
-    res.status(200).json(items);
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to fetch items by category",
-      error: error.message,
-    });
-  }
-}
-
-// Farmer can delete their own gallery items
-export async function deleteMyGalleryItem(req, res) {
-  const user = req.user;
-
-  if (!user) {
-    return res.status(403).json({ message: "Please login to delete items" });
-  }
-
-  const { id } = req.params;
-
-  try {
-    const item = await GalleryItem.findOne({ itemId: id });
-
-    if (!item) {
-      return res.status(404).json({ message: "Item not found" });
-    }
-
-    // Check ownership
-    if (
-      item.userId.toString() !== user._id.toString() &&
-      user.type !== "admin"
-    ) {
-      return res
-        .status(403)
-        .json({ message: "You can only delete your own items" });
-    }
-
-    const deletedItem = await GalleryItem.findOneAndDelete({ itemId: id });
-
-    res.status(200).json({
-      message: "Item deleted successfully",
-      deletedItem,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Failed to delete item",
-      error: error.message,
-    });
-  }
-}
 ```
 
 ## File: package.json
@@ -1148,8 +308,1404 @@ export async function deleteMyGalleryItem(req, res) {
 }
 ```
 
+## File: routes/userRoute.js
+```javascript
+// routes/userRoute.js
+import express from "express";
+import {
+  createUser,
+  getSingleUser,
+  deleteUser,
+  loginUser,
+  getAllUsers,
+  approveUser,
+  getPendingUsers,
+} from "../controllers/userControllers.js";
+import { authMiddleware } from "../middleware/authMiddleware.js";
+
+const userRouter = express.Router();
+
+userRouter.post("/", createUser);
+userRouter.get("/:id", getSingleUser);
+userRouter.delete("/:id", deleteUser);
+userRouter.post("/login", loginUser);
+userRouter.get("/", authMiddleware, getAllUsers);
+
+// New approval routes
+userRouter.get("/admin/pending", authMiddleware, getPendingUsers);
+userRouter.put("/admin/approve/:userId", authMiddleware, approveUser);
+
+export default userRouter;
+```
+
+## File: controllers/offersControllers.js
+```javascript
+import Offer from "../models/offer.js";
+
+// Create offer with better error handling
+export async function createOffer(req, res) {
+  try {
+    const user = req.user;
+
+    console.log("Creating offer for user:", user?.firstName, user?.type); // Debug log
+
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to create an offer",
+      });
+    }
+
+    if (user.type !== "farmer") {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are not authorized to create an offer. Only farmers can create offers.",
+      });
+    }
+
+    // Validate required fields
+    const { name, image, price, category, location, description, harvestDay } =
+      req.body;
+
+    if (
+      !name ||
+      !image ||
+      !price ||
+      !category ||
+      !location ||
+      !description ||
+      !harvestDay
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be provided",
+        required: [
+          "name",
+          "image",
+          "price",
+          "category",
+          "location",
+          "description",
+          "harvestDay",
+        ],
+      });
+    }
+
+    const offerData = {
+      ...req.body,
+      userId: user._id,
+      status: "pending",
+    };
+
+    console.log("Offer data:", offerData); // Debug log
+
+    const newOffer = new Offer(offerData);
+    await newOffer.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Offer submitted for approval",
+      itemId: newOffer.itemId,
+      offer: newOffer,
+    });
+  } catch (error) {
+    console.error("Error creating offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Offer creation failed",
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+}
+
+// Continue with all other offer functions with similar improvements...
+export async function approveOffer(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can approve items",
+      });
+    }
+
+    const { id } = req.params;
+
+    const updatedItem = await Offer.findOneAndUpdate(
+      { itemId: id },
+      { status: "approved" },
+      { new: true }
+    );
+
+    if (!updatedItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Offer approved",
+      offer: updatedItem,
+    });
+  } catch (error) {
+    console.error("Error approving offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to approve item",
+      error: error.message,
+    });
+  }
+}
+
+export async function deleteOffer(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can delete items",
+      });
+    }
+
+    const { id } = req.params;
+
+    const deletedItem = await Offer.findOneAndDelete({ itemId: id });
+
+    if (!deletedItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Offer deleted",
+      deletedItem,
+    });
+  } catch (error) {
+    console.error("Error deleting offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete item",
+      error: error.message,
+    });
+  }
+}
+
+export async function getApprovedOffers(req, res) {
+  try {
+    const offers = await Offer.find({ status: "approved" });
+    res.status(200).json({
+      success: true,
+      data: offers,
+    });
+  } catch (error) {
+    console.error("Error fetching approved offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch offers",
+      error: error.message,
+    });
+  }
+}
+
+export async function getPendingOffers(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can view pending items",
+      });
+    }
+
+    const pendingOffers = await Offer.find({ status: "pending" });
+    res.status(200).json({
+      success: true,
+      data: pendingOffers,
+    });
+  } catch (error) {
+    console.error("Error fetching pending offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch pending offers",
+      error: error.message,
+    });
+  }
+}
+
+export async function getOffer(req, res) {
+  try {
+    const { id } = req.params;
+
+    const offer = await Offer.findOne({ itemId: id });
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Offer found successfully",
+      offer: offer,
+    });
+  } catch (error) {
+    console.error("Error fetching offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching offer",
+      error: error.message,
+    });
+  }
+}
+
+export async function updateOffer(req, res) {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to update an offer",
+      });
+    }
+
+    const { id } = req.params;
+
+    const existingOffer = await Offer.findOne({ itemId: id });
+
+    if (!existingOffer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    const isOwner = existingOffer.userId.toString() === user._id.toString();
+
+    if (user.type !== "admin" && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to update this offer",
+      });
+    }
+
+    let updateData = { ...req.body };
+
+    if (user.type === "farmer") {
+      updateData.status = "pending";
+    }
+
+    const updatedOffer = await Offer.findOneAndUpdate(
+      { itemId: id },
+      updateData,
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message:
+        user.type === "farmer"
+          ? "Offer updated and submitted for approval"
+          : "Offer updated successfully",
+      offer: updatedOffer,
+    });
+  } catch (error) {
+    console.error("Error updating offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update offer",
+      error: error.message,
+    });
+  }
+}
+
+export async function getAllOffers(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can access all offers",
+      });
+    }
+
+    const filter = req.query.status ? { status: req.query.status } : {};
+    const offers = await Offer.find(filter);
+    res.status(200).json({
+      success: true,
+      data: offers,
+    });
+  } catch (error) {
+    console.error("Error fetching all offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch offers",
+      error: error.message,
+    });
+  }
+}
+
+export async function getMyOffers(req, res) {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to access your offers",
+      });
+    }
+
+    const myOffers = await Offer.find({ userId: user._id });
+    res.status(200).json({
+      success: true,
+      message: "Your offers retrieved successfully",
+      offers: myOffers,
+    });
+  } catch (error) {
+    console.error("Error fetching user offers:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve your offers",
+      error: error.message,
+    });
+  }
+}
+
+export async function getApprovedOffersByCategory(req, res) {
+  try {
+    const { category } = req.params;
+
+    const offers = await Offer.find({
+      status: "approved",
+      category: category.toLowerCase(),
+    });
+
+    res.status(200).json({
+      success: true,
+      data: offers,
+    });
+  } catch (error) {
+    console.error("Error fetching offers by category:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch offers by category",
+      error: error.message,
+    });
+  }
+}
+
+export async function deleteMyOffer(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to delete offers",
+      });
+    }
+
+    const { id } = req.params;
+
+    const offer = await Offer.findOne({ itemId: id });
+
+    if (!offer) {
+      return res.status(404).json({
+        success: false,
+        message: "Offer not found",
+      });
+    }
+
+    // Check ownership
+    if (
+      offer.userId.toString() !== user._id.toString() &&
+      user.type !== "admin"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only delete your own offers",
+      });
+    }
+
+    const deletedOffer = await Offer.findOneAndDelete({ itemId: id });
+
+    res.status(200).json({
+      success: true,
+      message: "Offer deleted successfully",
+      deletedOffer,
+    });
+  } catch (error) {
+    console.error("Error deleting offer:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete offer",
+      error: error.message,
+    });
+  }
+}
+```
+
+## File: controllers/userControllers.js
+```javascript
+// controllers/userControllers.js
+import { response } from "express";
+import User from "../models/user.js";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+// Create user function (auto-pending for non-admins)
+export async function createUser(req, res) {
+  const user = req.body;
+
+  const password = req.body.password;
+  const saltRounds = 10;
+  const passwordHash = bcrypt.hashSync(password, saltRounds);
+
+  user.password = passwordHash;
+
+  // Set approval status based on user type
+  if (user.type === "admin") {
+    user.approvalStatus = "approved"; // Admins are auto-approved
+  } else {
+    user.approvalStatus = "pending"; // Farmers and buyers need approval
+  }
+
+  const newUser = new User(user);
+
+  try {
+    await newUser.save();
+    console.log("User created successfully");
+
+    if (user.type === "admin") {
+      res.status(200).json({
+        message: "Admin user created and approved successfully",
+      });
+    } else {
+      res.status(200).json({
+        message: "User created successfully. Awaiting admin approval.",
+      });
+    }
+  } catch (error) {
+    console.log("User creation failed");
+    res.status(400).json({
+      message: "User creation failed",
+      error: error,
+    });
+  }
+}
+
+// Updated login function with approval check
+export async function loginUser(req, res) {
+  const credentials = req.body;
+
+  try {
+    const user = await User.findOne({
+      email: credentials.email,
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const isMatch = bcrypt.compareSync(credentials.password, user.password);
+
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid password" });
+    }
+
+    // Check approval status
+    if (user.approvalStatus === "pending") {
+      return res.status(403).json({
+        message:
+          "Your account is pending admin approval. Please wait for approval.",
+      });
+    }
+
+    if (user.approvalStatus === "rejected") {
+      return res.status(403).json({
+        message: "Your account has been rejected. Please contact admin.",
+      });
+    }
+
+    const payload = {
+      id: user._id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      type: user.type,
+    };
+
+    const token = jwt.sign(payload, process.env.JWT_KEY, { expiresIn: "48h" });
+    return res.status(200).json({
+      message: "Login successful",
+      user: user,
+      token: token,
+    });
+  } catch (error) {
+    res.status(400).json({
+      message: "Login error",
+      error: error,
+    });
+  }
+}
+
+// Approve user function (admin only)
+export async function approveUser(req, res) {
+  const adminUser = req.user;
+
+  if (!adminUser || adminUser.type !== "admin") {
+    return res.status(403).json({
+      message: "Only admins can approve users",
+    });
+  }
+
+  const { userId } = req.params;
+  const { action } = req.body; // "approve" or "reject"
+
+  try {
+    const updateData = {
+      approvalStatus: action === "approve" ? "approved" : "rejected",
+      approvedBy: adminUser.id,
+      approvedAt: new Date(),
+    };
+
+    const updatedUser = await User.findByIdAndUpdate(userId, updateData, {
+      new: true,
+    }).select("-password");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      message: `User ${action}d successfully`,
+      user: updatedUser,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to update user approval status",
+      error: error.message,
+    });
+  }
+}
+
+// Get pending users (admin only)
+export async function getPendingUsers(req, res) {
+  const adminUser = req.user;
+
+  if (!adminUser || adminUser.type !== "admin") {
+    return res.status(403).json({
+      message: "Only admins can view pending users",
+    });
+  }
+
+  try {
+    const pendingUsers = await User.find({
+      approvalStatus: "pending",
+    }).select("-password");
+
+    res.status(200).json({
+      message: "Pending users retrieved successfully",
+      users: pendingUsers,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to get pending users",
+      error: error.message,
+    });
+  }
+}
+
+// Updated getAllUsers function
+export async function getAllUsers(req, res) {
+  const user = req.user;
+
+  if (!user || user.type !== "admin") {
+    return res.status(403).json({
+      message: "Only admins can access all users",
+    });
+  }
+
+  try {
+    const users = await User.find({}).select("-password");
+
+    res.status(200).json({
+      message: "All users retrieved successfully",
+      users: users,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to get users",
+      error: error.message,
+    });
+  }
+}
+
+// Other existing functions remain the same...
+export async function getSingleUser(req, res) {
+  try {
+    const user = await User.findById(req.params.id).select(
+      "-password -refreshToken -__v"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    console.error("User fetch error:", error);
+    res.status(400).json({
+      success: false,
+      message: "Invalid user ID",
+      error: error.message,
+    });
+  }
+}
+
+export async function deleteUser(req, res) {
+  try {
+    const deletedUser = await User.findByIdAndDelete(req.params.id);
+
+    if (!deletedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "User deleted successfully",
+    });
+  } catch (error) {
+    console.error("User deletion error:", error);
+    res.status(400).json({
+      success: false,
+      message: "User deletion failed",
+      error: error.message,
+    });
+  }
+}
+```
+
+## File: models/offer.js
+```javascript
+// models/offer.js
+import mongoose from "mongoose";
+
+const offerSchema = mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    image: { type: String, required: true },
+    price: { type: String, required: true },
+    condition: [{ type: String }],
+    category: { type: String, required: true },
+    location: { type: String, required: true },
+    description: { type: String, required: true },
+    harvestDay: { type: Date, required: true },
+    lastUpdated: { type: Date },
+    itemId: { type: Number, unique: true },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "approved"],
+      default: "pending",
+    },
+    previousData: { type: Object }, // Store previous data for comparison
+    updateHistory: [
+      {
+        // Track update history
+        updatedAt: { type: Date, default: Date.now },
+        changes: { type: Object },
+        updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      },
+    ],
+  },
+  {
+    timestamps: true,
+  }
+);
+
+// Pre-save hook
+offerSchema.pre("save", async function (next) {
+  if (!this.isNew) return next();
+
+  try {
+    const count = await this.constructor.countDocuments();
+    this.itemId = 1400 + count + 1;
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+const Offer = mongoose.model("Offer", offerSchema);
+
+export default Offer;
+```
+
+## File: routes/offerRoute.js
+```javascript
+// routes/offerRoute.js
+import express from "express";
+import {
+  createOffer,
+  approveOffer,
+  deleteOffer,
+  getApprovedOffers,
+  getPendingOffers,
+  getOffer,
+  getMyOffers,
+  updateOffer,
+  getAllOffers,
+  getApprovedOffersByCategory,
+  deleteMyOffer,
+} from "../controllers/offersControllers.js";
+import {
+  authMiddleware,
+  adminMiddleware,
+} from "../middleware/authMiddleware.js";
+
+const router = express.Router();
+
+// Create
+router.post("/", authMiddleware, createOffer);
+
+// Read
+router.get("/approved", getApprovedOffers);
+router.get("/my-offers", authMiddleware, getMyOffers);
+router.get("/pending", authMiddleware, adminMiddleware, getPendingOffers);
+router.get("/admin/all", authMiddleware, adminMiddleware, getAllOffers);
+router.get("/category/:category", getApprovedOffersByCategory);
+
+// Parameterized routes
+router.get("/:id", getOffer);
+
+// Update
+router.put("/approve/:id", authMiddleware, adminMiddleware, approveOffer);
+router.put("/update/:id", authMiddleware, updateOffer);
+
+// Delete
+router.delete("/my-offers/:itemId", authMiddleware, deleteMyOffer);
+router.delete("/admin/:id", authMiddleware, adminMiddleware, deleteOffer);
+
+export default router;
+```
+
+## File: controllers/galleryItemControllers.js
+```javascript
+import GalleryItem from "../models/galleryItem.js";
+
+export async function postGalleryItem(req, res) {
+  try {
+    console.log("Gallery create - Starting creation process");
+    console.log("Gallery create - Request user:", req.user);
+    console.log("Gallery create - Request body:", req.body);
+
+    const user = req.user;
+
+    if (!user) {
+      console.log("Gallery create - No user found");
+      return res.status(403).json({
+        success: false,
+        message: "Please login to create a gallery item",
+      });
+    }
+
+    console.log("Gallery create - User found:", user.firstName, user.type);
+
+    if (user.type !== "farmer") {
+      console.log("Gallery create - User is not a farmer:", user.type);
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are not authorized to create a gallery item. Only farmers can create gallery items.",
+      });
+    }
+
+    // Validate required fields
+    const { name, image, price, category, location, description, harvestDay } =
+      req.body;
+
+    if (
+      !name ||
+      !image ||
+      !price ||
+      !category ||
+      !location ||
+      !description ||
+      !harvestDay
+    ) {
+      console.log("Gallery create - Missing required fields");
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be provided",
+        required: [
+          "name",
+          "image",
+          "price",
+          "category",
+          "location",
+          "description",
+          "harvestDay",
+        ],
+        received: {
+          name,
+          image: !!image,
+          price,
+          category,
+          location,
+          description,
+          harvestDay,
+        },
+      });
+    }
+
+    const galleryItemData = {
+      ...req.body,
+      userId: user._id,
+      status: "pending",
+    };
+
+    console.log("Gallery create - Creating item with data:", {
+      ...galleryItemData,
+      image: "IMAGE_DATA_PRESENT",
+    });
+
+    const newGalleryItem = new GalleryItem(galleryItemData);
+    await newGalleryItem.save();
+
+    console.log(
+      "Gallery create - Item created successfully:",
+      newGalleryItem.itemId
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Gallery item submitted for approval",
+      itemId: newGalleryItem.itemId,
+      galleryItem: {
+        ...newGalleryItem.toObject(),
+        image: "IMAGE_DATA_PRESENT", // Don't send full image data in response
+      },
+    });
+  } catch (error) {
+    console.error("Gallery create - Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Gallery Item creation failed",
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+}
+
+// Keep all other existing functions unchanged...
+export async function approveGalleryItem(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can approve items",
+      });
+    }
+
+    const { id } = req.params;
+
+    const updatedItem = await GalleryItem.findOneAndUpdate(
+      { itemId: id },
+      { status: "approved" },
+      { new: true }
+    );
+
+    if (!updatedItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Gallery item not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Gallery item approved",
+      galleryItem: updatedItem,
+    });
+  } catch (error) {
+    console.error("Error approving gallery item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to approve item",
+      error: error.message,
+    });
+  }
+}
+
+// Continue with all other existing functions...
+export async function deleteGalleryItem(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can delete items",
+      });
+    }
+
+    const { id } = req.params;
+
+    const deletedItem = await GalleryItem.findOneAndDelete({ itemId: id });
+
+    if (!deletedItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Gallery item not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Gallery item deleted",
+      deletedItem,
+    });
+  } catch (error) {
+    console.error("Error deleting gallery item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete item",
+      error: error.message,
+    });
+  }
+}
+
+export async function getApprovedGalleryItems(req, res) {
+  try {
+    const items = await GalleryItem.find({ status: "approved" });
+    res.status(200).json({
+      success: true,
+      data: items,
+    });
+  } catch (error) {
+    console.error("Error fetching approved gallery items:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch items",
+      error: error.message,
+    });
+  }
+}
+
+export async function getPendingGalleryItems(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can view pending items",
+      });
+    }
+
+    const pendingItems = await GalleryItem.find({ status: "pending" });
+    res.status(200).json({
+      success: true,
+      data: pendingItems,
+    });
+  } catch (error) {
+    console.error("Error fetching pending gallery items:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch pending items",
+      error: error.message,
+    });
+  }
+}
+
+export async function getGalleryItem(req, res) {
+  try {
+    const { id } = req.params;
+
+    const galleryItem = await GalleryItem.findOne({ itemId: id });
+
+    if (!galleryItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Gallery Item not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Gallery Item found successfully",
+      galleryItem: galleryItem,
+    });
+  } catch (error) {
+    console.error("Error fetching gallery item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Gallery Item getting error",
+      error: error.message,
+    });
+  }
+}
+
+export async function updateGalleryItem(req, res) {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to update a gallery item",
+      });
+    }
+
+    const { id } = req.params;
+
+    const existingItem = await GalleryItem.findOne({ itemId: id });
+
+    if (!existingItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Gallery item not found",
+      });
+    }
+
+    const isOwner = existingItem.userId.toString() === user._id.toString();
+
+    if (user.type !== "admin" && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to update this gallery item",
+      });
+    }
+
+    let updateData = { ...req.body };
+
+    if (user.type === "farmer") {
+      updateData.status = "pending";
+    }
+
+    const updatedItem = await GalleryItem.findOneAndUpdate(
+      { itemId: id },
+      updateData,
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      message:
+        user.type === "farmer"
+          ? "Gallery item updated and submitted for approval"
+          : "Gallery item updated successfully",
+      galleryItem: updatedItem,
+    });
+  } catch (error) {
+    console.error("Error updating gallery item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update gallery item",
+      error: error.message,
+    });
+  }
+}
+
+export async function getAllGalleryItems(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user || user.type !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can access all gallery items",
+      });
+    }
+
+    const filter = req.query.status ? { status: req.query.status } : {};
+    const items = await GalleryItem.find(filter);
+    res.status(200).json({
+      success: true,
+      data: items,
+    });
+  } catch (error) {
+    console.error("Error fetching all gallery items:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch gallery items",
+      error: error.message,
+    });
+  }
+}
+
+export async function getMyGalleryItems(req, res) {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to access your gallery items",
+      });
+    }
+
+    const myItems = await GalleryItem.find({ userId: user._id });
+    res.status(200).json({
+      success: true,
+      message: "Your gallery items retrieved successfully",
+      galleryItems: myItems,
+    });
+  } catch (error) {
+    console.error("Error fetching user gallery items:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve your gallery items",
+      error: error.message,
+    });
+  }
+}
+
+export async function getApprovedItemsByCategory(req, res) {
+  try {
+    const { category } = req.params;
+
+    const items = await GalleryItem.find({
+      status: "approved",
+      category: category.toLowerCase(),
+    });
+
+    res.status(200).json({
+      success: true,
+      data: items,
+    });
+  } catch (error) {
+    console.error("Error fetching items by category:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch items by category",
+      error: error.message,
+    });
+  }
+}
+
+export async function deleteMyGalleryItem(req, res) {
+  try {
+    const user = req.user;
+
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: "Please login to delete items",
+      });
+    }
+
+    const { id } = req.params;
+
+    const item = await GalleryItem.findOne({ itemId: id });
+
+    if (!item) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found",
+      });
+    }
+
+    // Check ownership
+    if (
+      item.userId.toString() !== user._id.toString() &&
+      user.type !== "admin"
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only delete your own items",
+      });
+    }
+
+    const deletedItem = await GalleryItem.findOneAndDelete({ itemId: id });
+
+    res.status(200).json({
+      success: true,
+      message: "Item deleted successfully",
+      deletedItem,
+    });
+  } catch (error) {
+    console.error("Error deleting gallery item:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete item",
+      error: error.message,
+    });
+  }
+}
+```
+
+## File: index.js
+```javascript
+import express from "express";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
+import cors from "cors";
+import bodyParser from "body-parser";
+import userRouter from "./routes/userRoute.js";
+import offerRouter from "./routes/offerRoute.js";
+import galleryItemRouter from "./routes/galleryItemRoute.js";
+import jwt from "jsonwebtoken";
+import User from "./models/user.js";
+
+dotenv.config();
+
+const app = express();
+
+app.use(cors());
+app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
+
+const connectionString = process.env.MONGODB_URL;
+
+// Global middleware for token parsing (improved)
+app.use(async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split(" ")[1];
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_KEY);
+      console.log("Global middleware - Decoded token:", decoded);
+
+      // Find the actual user from database
+      const user = await User.findById(decoded.id).select("-password");
+
+      if (user) {
+        req.user = user;
+        console.log(
+          "Global middleware - User found:",
+          user.firstName,
+          user.type
+        );
+      } else {
+        console.log("Global middleware - User not found in database");
+      }
+    } catch (error) {
+      console.log(
+        "Global middleware - Token verification failed:",
+        error.message
+      );
+    }
+  }
+
+  next();
+});
+
+mongoose
+  .connect(connectionString)
+  .then(() => {
+    console.log("Database connected successfully");
+  })
+  .catch((error) => {
+    console.log("Database connection error:", error);
+  });
+
+app.use("/api/users", userRouter);
+app.use("/api/gallery", galleryItemRouter);
+app.use("/api/offers", offerRouter);
+
+// Global error handler
+app.use((error, req, res, next) => {
+  console.error("Global error handler:", error);
+  res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error:
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "Something went wrong",
+  });
+});
+
+app.listen(5000, () => {
+  console.log("Server is running on port 5000");
+});
+```
+
+## File: models/galleryItem.js
+```javascript
+// models/galleryItem.js - Add previousData field
+import mongoose from "mongoose";
+
+const galleryItemSchema = mongoose.Schema({
+  name: { type: String, required: true },
+  image: { type: String },
+  price: { type: String, required: true },
+  category: { type: String, required: true },
+  location: { type: String, required: true },
+  description: { type: String, required: true },
+  harvestDay: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now },
+  lastUpdated: { type: Date },
+  itemId: { type: Number, unique: true },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  status: { type: String, enum: ["pending", "approved"], default: "pending" },
+  // Add previous data tracking
+  previousData: { type: Object },
+  updateHistory: [
+    {
+      updatedAt: { type: Date, default: Date.now },
+      changes: { type: Object },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    },
+  ],
+});
+
+// Pre-save hook to generate custom numeric ID
+galleryItemSchema.pre("save", async function (next) {
+  if (!this.isNew) return next();
+
+  try {
+    const count = await this.constructor.countDocuments();
+    this.itemId = 1400 + count + 1;
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+const GalleryItem = mongoose.model("GalleryItem", galleryItemSchema);
+export default GalleryItem;
+```
+
 ## File: routes/galleryItemRoute.js
 ```javascript
+// routes/galleryItemRoute.js - Route order is critical
 import express from "express";
 import {
   postGalleryItem,
@@ -1171,14 +1727,14 @@ const router = express.Router();
 // Create
 router.post("/create", authMiddleware, postGalleryItem);
 
-// Read - specific routes first
-router.get("/category/:category", getApprovedItemsByCategory);
-router.get("/my-items", authMiddleware, getMyGalleryItems);
+// Read - SPECIFIC routes FIRST (very important)
 router.get("/approved", getApprovedGalleryItems);
+router.get("/my-items", authMiddleware, getMyGalleryItems);
 router.get("/pending", authMiddleware, getPendingGalleryItems);
-router.get("/admin/items", authMiddleware, getAllGalleryItems);
+router.get("/admin/items", authMiddleware, getAllGalleryItems); // Admin route
+router.get("/category/:category", getApprovedItemsByCategory);
 
-// Read - parameterized routes after
+// Read - parameterized routes LAST
 router.get("/:id", getGalleryItem);
 
 // Update
@@ -1190,100 +1746,4 @@ router.delete("/delete/:id", authMiddleware, deleteGalleryItem);
 router.delete("/my-items/:id", authMiddleware, deleteMyGalleryItem);
 
 export default router;
-```
-
-## File: models/galleryItem.js
-```javascript
-import mongoose from "mongoose";
-
-const galleryItemSchema = mongoose.Schema({
-  name: { type: String, required: true },
-  image: { type: String, required: true },
-  price: { type: String, required: true },
-  category: { type: String, required: true },
-  location: { type: String, required: true },
-  description: { type: String, required: true },
-  harvestDay: { type: Date, required: true },
-  createdAt: { type: Date, default: Date.now }, // Added creation date
-  itemId: { type: Number, unique: true }, // Added custom numeric ID
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User", // Changed to singular "User" (common convention)
-    required: true,
-  },
-  status: { type: String, enum: ["pending", "approved"], default: "pending" },
-});
-
-// Pre-save hook to generate custom numeric ID
-galleryItemSchema.pre("save", async function (next) {
-  if (!this.isNew) return next();
-
-  try {
-    const count = await this.constructor.countDocuments();
-    this.itemId = 1400 + count + 1;
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-const GalleryItem = mongoose.model("GalleryItem", galleryItemSchema);
-
-export default GalleryItem;
-```
-
-## File: index.js
-```javascript
-import express from "express";
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-import cors from "cors";
-import bodyParser from "body-parser";
-import userRouter from "./routes/userRoute.js";
-import offerRouter from "./routes/offerRoute.js";
-import galleryItemRouter from "./routes/galleryItemRoute.js";
-import jwt, { decode } from "jsonwebtoken";
-
-dotenv.config();
-
-const app = express();
-
-app.use(cors());
-app.use(bodyParser.json());
-
-const connectionString = process.env.MONGODB_URL;
-
-app.use((req, res, next) => {
-  const token = req.header("Authorization")?.replace("Bearer ", ""); //token thiyenawada balanawa
-
-  if (token != null) {
-    jwt.verify(token, process.env.JWT_KEY, (err, decoded) => {
-      if (decoded != null) {
-        req.user = decoded;
-        next();
-      } else {
-        next();
-      }
-    });
-  } else {
-    next();
-  }
-});
-
-mongoose
-  .connect(connectionString)
-  .then(() => {
-    console.log("data base connected");
-  })
-  .catch(() => {
-    console.log("data base error");
-  });
-
-app.use("/api/users", userRouter);
-app.use("/api/gallery", galleryItemRouter);
-app.use("/api/offers", offerRouter);
-
-app.listen(5000, (req, res) => {
-  console.log("server is runing on port 5000");
-});
 ```

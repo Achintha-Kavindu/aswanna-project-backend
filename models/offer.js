@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 const offerSchema = mongoose.Schema(
   {
     name: { type: String, required: true },
-    image: { type: String, required: true },
+    image: { type: String, required: false },
     price: { type: String, required: true },
     condition: [{ type: String }],
     category: { type: String, required: true },

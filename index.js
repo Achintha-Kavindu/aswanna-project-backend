@@ -6,47 +6,80 @@ import bodyParser from "body-parser";
 import userRouter from "./routes/userRoute.js";
 import offerRouter from "./routes/offerRoute.js";
 import galleryItemRouter from "./routes/galleryItemRoute.js";
-import jwt, { decode } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
+import User from "./models/user.js";
 
 dotenv.config();
 
 const app = express();
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: "50mb" }));
+app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
 
 const connectionString = process.env.MONGODB_URL;
 
-app.use((req, res, next) => {
-  const token = req.header("Authorization")?.replace("Bearer ", ""); //token thiyenawada balanawa
+// Global middleware for token parsing (improved)
+app.use(async (req, res, next) => {
+  const authHeader = req.headers.authorization;
 
-  if (token != null) {
-    jwt.verify(token, process.env.JWT_KEY, (err, decoded) => {
-      if (decoded != null) {
-        req.user = decoded;
-        next();
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split(" ")[1];
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_KEY);
+      console.log("Global middleware - Decoded token:", decoded);
+
+      // Find the actual user from database
+      const user = await User.findById(decoded.id).select("-password");
+
+      if (user) {
+        req.user = user;
+        console.log(
+          "Global middleware - User found:",
+          user.firstName,
+          user.type
+        );
       } else {
-        next();
+        console.log("Global middleware - User not found in database");
       }
-    });
-  } else {
-    next();
+    } catch (error) {
+      console.log(
+        "Global middleware - Token verification failed:",
+        error.message
+      );
+    }
   }
+
+  next();
 });
 
 mongoose
   .connect(connectionString)
   .then(() => {
-    console.log("data base connected");
+    console.log("Database connected successfully");
   })
-  .catch(() => {
-    console.log("data base error");
+  .catch((error) => {
+    console.log("Database connection error:", error);
   });
 
 app.use("/api/users", userRouter);
 app.use("/api/gallery", galleryItemRouter);
 app.use("/api/offers", offerRouter);
 
-app.listen(5000, (req, res) => {
-  console.log("server is runing on port 5000");
+// Global error handler
+app.use((error, req, res, next) => {
+  console.error("Global error handler:", error);
+  res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error:
+      process.env.NODE_ENV === "development"
+        ? error.message
+        : "Something went wrong",
+  });
+});
+
+app.listen(5000, () => {
+  console.log("Server is running on port 5000");
 });
