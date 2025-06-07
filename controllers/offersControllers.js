@@ -267,11 +267,20 @@ export async function updateOffer(req, res) {
     }
 
     const { id } = req.params;
+    console.log("Updating offer with id:", id);
 
-    // FIXED: Try both itemId and _id for better compatibility
-    const existingOffer = await Offer.findOne({
-      $or: [{ itemId: id }, { _id: id }],
-    });
+    // FIXED: Better query logic to handle both itemId and _id
+    let existingOffer;
+
+    // First try to find by itemId (numeric)
+    if (!isNaN(id)) {
+      existingOffer = await Offer.findOne({ itemId: parseInt(id) });
+    }
+
+    // If not found and id looks like ObjectId, try _id
+    if (!existingOffer && id.match(/^[0-9a-fA-F]{24}$/)) {
+      existingOffer = await Offer.findOne({ _id: id });
+    }
 
     if (!existingOffer) {
       return res.status(404).json({
@@ -295,11 +304,21 @@ export async function updateOffer(req, res) {
       updateData.status = "pending";
     }
 
-    const updatedOffer = await Offer.findOneAndUpdate(
-      { $or: [{ itemId: id }, { _id: id }] },
-      updateData,
-      { new: true }
-    );
+    // Update using the same query logic
+    let updatedOffer;
+    if (!isNaN(id)) {
+      updatedOffer = await Offer.findOneAndUpdate(
+        { itemId: parseInt(id) },
+        updateData,
+        { new: true }
+      );
+    } else {
+      updatedOffer = await Offer.findOneAndUpdate({ _id: id }, updateData, {
+        new: true,
+      });
+    }
+
+    console.log("Offer updated successfully:", updatedOffer.itemId);
 
     res.status(200).json({
       success: true,
