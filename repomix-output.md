@@ -885,6 +885,77 @@ router.get("/:id", getOfferById);
 export default router;
 ```
 
+## File: models/galleryItem.js
+```javascript
+// models/galleryItem.js - Add previousData field
+import mongoose from "mongoose";
+
+const galleryItemSchema = mongoose.Schema({
+  name: { type: String, required: true },
+  image: { type: String, required: false },
+  price: { type: String, required: true },
+  category: { type: String, required: true },
+  location: { type: String, required: true },
+  description: { type: String, required: true },
+  harvestDay: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now },
+  lastUpdated: { type: Date },
+  itemId: { type: Number, unique: true },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  status: { type: String, enum: ["pending", "approved"], default: "pending" },
+  // Add previous data tracking
+  previousData: { type: Object },
+  updateHistory: [
+    {
+      updatedAt: { type: Date, default: Date.now },
+      changes: { type: Object },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    },
+  ],
+});
+
+// Current problematic pre-save hook
+galleryItemSchema.pre("save", async function (next) {
+  if (!this.isNew) return next();
+
+  try {
+    // FIXED: Better itemId generation
+    const lastItem = await this.constructor.findOne(
+      {},
+      {},
+      { sort: { itemId: -1 } }
+    );
+
+    if (lastItem && lastItem.itemId) {
+      this.itemId = lastItem.itemId + 1;
+    } else {
+      this.itemId = 1400; // Starting number
+    }
+
+    // ADDED: Double-check for uniqueness
+    let attempts = 0;
+    while (attempts < 10) {
+      const existing = await this.constructor.findOne({ itemId: this.itemId });
+      if (!existing) break;
+
+      this.itemId += 1;
+      attempts += 1;
+    }
+
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+const GalleryItem = mongoose.model("GalleryItem", galleryItemSchema);
+export default GalleryItem;
+```
+
 ## File: controllers/galleryItemControllers.js
 ```javascript
 import GalleryItem from "../models/galleryItem.js";
@@ -1078,14 +1149,13 @@ export async function deleteGalleryItem(req, res) {
   }
 }
 
-// Updated getApprovedGalleryItems function
 export async function getApprovedGalleryItems(req, res) {
   try {
     console.log("Fetching approved gallery items for home page");
 
-    const approvedItems = await GalleryItem.find({ status: "approved" })
-      .populate("userId", "firstName lastName location")
-      .sort({ createdAt: -1 });
+    const approvedItems = await GalleryItem.find({ status: "approved" }).sort({
+      createdAt: -1,
+    });
 
     console.log(`Found ${approvedItems.length} approved gallery items`);
 
@@ -1343,77 +1413,6 @@ export async function deleteMyGalleryItem(req, res) {
 }
 ```
 
-## File: models/galleryItem.js
-```javascript
-// models/galleryItem.js - Add previousData field
-import mongoose from "mongoose";
-
-const galleryItemSchema = mongoose.Schema({
-  name: { type: String, required: true },
-  image: { type: String, required: false },
-  price: { type: String, required: true },
-  category: { type: String, required: true },
-  location: { type: String, required: true },
-  description: { type: String, required: true },
-  harvestDay: { type: Date, required: true },
-  createdAt: { type: Date, default: Date.now },
-  lastUpdated: { type: Date },
-  itemId: { type: Number, unique: true },
-  userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: true,
-  },
-  status: { type: String, enum: ["pending", "approved"], default: "pending" },
-  // Add previous data tracking
-  previousData: { type: Object },
-  updateHistory: [
-    {
-      updatedAt: { type: Date, default: Date.now },
-      changes: { type: Object },
-      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    },
-  ],
-});
-
-// Current problematic pre-save hook
-galleryItemSchema.pre("save", async function (next) {
-  if (!this.isNew) return next();
-
-  try {
-    // FIXED: Better itemId generation
-    const lastItem = await this.constructor.findOne(
-      {},
-      {},
-      { sort: { itemId: -1 } }
-    );
-
-    if (lastItem && lastItem.itemId) {
-      this.itemId = lastItem.itemId + 1;
-    } else {
-      this.itemId = 1400; // Starting number
-    }
-
-    // ADDED: Double-check for uniqueness
-    let attempts = 0;
-    while (attempts < 10) {
-      const existing = await this.constructor.findOne({ itemId: this.itemId });
-      if (!existing) break;
-
-      this.itemId += 1;
-      attempts += 1;
-    }
-
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-const GalleryItem = mongoose.model("GalleryItem", galleryItemSchema);
-export default GalleryItem;
-```
-
 ## File: controllers/offersControllers.js
 ```javascript
 import Offer from "../models/offer.js";
@@ -1601,14 +1600,13 @@ export async function deleteOffer(req, res) {
   }
 }
 
-// Updated getApprovedOffers function
 export async function getApprovedOffers(req, res) {
   try {
     console.log("Fetching approved offers for home page");
 
-    const approvedOffers = await Offer.find({ status: "approved" })
-      .populate("userId", "firstName lastName location")
-      .sort({ createdAt: -1 });
+    const approvedOffers = await Offer.find({ status: "approved" }).sort({
+      createdAt: -1,
+    });
 
     console.log(`Found ${approvedOffers.length} approved offers`);
 
