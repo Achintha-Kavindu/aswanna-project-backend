@@ -1,4 +1,5 @@
 import Offer from "../models/offer.js";
+import User from "../models/user.js";
 
 export async function createOffer(req, res) {
   try {
@@ -184,16 +185,24 @@ export async function deleteOffer(req, res) {
 
 export async function getApprovedOffers(req, res) {
   try {
-    const offers = await Offer.find({ status: "approved" });
+    console.log("Fetching approved offers for home page");
+
+    const approvedOffers = await Offer.find({ status: "approved" }).sort({
+      createdAt: -1,
+    });
+
+    console.log(`Found ${approvedOffers.length} approved offers`);
+
     res.status(200).json({
       success: true,
-      data: offers,
+      data: approvedOffers,
+      count: approvedOffers.length,
     });
   } catch (error) {
     console.error("Error fetching approved offers:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch offers",
+      message: "Failed to fetch approved offers",
       error: error.message,
     });
   }

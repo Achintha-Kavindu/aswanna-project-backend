@@ -1,4 +1,5 @@
 import GalleryItem from "../models/galleryItem.js";
+import User from "../models/user.js";
 
 export async function postGalleryItem(req, res) {
   try {
@@ -190,16 +191,24 @@ export async function deleteGalleryItem(req, res) {
 
 export async function getApprovedGalleryItems(req, res) {
   try {
-    const items = await GalleryItem.find({ status: "approved" });
+    console.log("Fetching approved gallery items for home page");
+
+    const approvedItems = await GalleryItem.find({ status: "approved" }).sort({
+      createdAt: -1,
+    });
+
+    console.log(`Found ${approvedItems.length} approved gallery items`);
+
     res.status(200).json({
       success: true,
-      data: items,
+      data: approvedItems,
+      count: approvedItems.length,
     });
   } catch (error) {
     console.error("Error fetching approved gallery items:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to fetch items",
+      message: "Failed to fetch approved gallery items",
       error: error.message,
     });
   }
