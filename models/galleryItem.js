@@ -1,4 +1,5 @@
 // models/galleryItem.js - Add previousData field
+import e from "express";
 import mongoose from "mongoose";
 
 const galleryItemSchema = mongoose.Schema({
@@ -17,6 +18,13 @@ const galleryItemSchema = mongoose.Schema({
     ref: "User",
     required: true,
   },
+  owner: {
+    name: { type: String },
+    location: { type: String },
+    phone: { type: String },
+    email: { type: String },
+  },
+
   status: { type: String, enum: ["pending", "approved"], default: "pending" },
   // Add previous data tracking
   previousData: { type: Object },

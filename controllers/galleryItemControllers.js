@@ -61,7 +61,15 @@ export async function postGalleryItem(req, res) {
       location: req.body.location,
       description: req.body.description,
       harvestDay: req.body.harvestDay,
-      userId: user._id, // FIXED: Use user from req.user
+      userId: user._id,
+      owner: {
+        name: user.firstName + " " + user.lastName,
+        location: user.location,
+        phone: user.phone,
+        email: user.email,
+      },
+
+      // FIXED: Use user from req.user
       status: "pending",
       // FIXED: Image is optional
       image:
@@ -197,7 +205,8 @@ export async function getApprovedGalleryItems(req, res) {
       createdAt: -1,
     });
 
-    console.log(`Found ${approvedItems.length} approved gallery items`);
+    //console.log(`Found ${approvedItems.length} approved gallery items`);
+    console.log(approvedItems);
 
     res.status(200).json({
       success: true,

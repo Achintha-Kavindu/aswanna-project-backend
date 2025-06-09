@@ -18,6 +18,13 @@ const offerSchema = mongoose.Schema(
       ref: "User",
       required: true,
     },
+    owner: {
+      name: { type: String },
+      location: { type: String },
+      phone: { type: String },
+      email: { type: String },
+    },
+
     status: {
       type: String,
       enum: ["pending", "approved"],

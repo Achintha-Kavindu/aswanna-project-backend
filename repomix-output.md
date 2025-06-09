@@ -49,6 +49,7 @@ repomix.config.json
 routes/galleryItemRoute.js
 routes/offerRoute.js
 routes/userRoute.js
+vercel.json
 ```
 
 # Files
@@ -99,6 +100,25 @@ routes/userRoute.js
   "tokenCount": {
     "encoding": "o200k_base"
   }
+}
+```
+
+## File: vercel.json
+```json
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "index.js"
+    }
+  ]
 }
 ```
 
@@ -769,6 +789,13 @@ const offerSchema = mongoose.Schema(
       ref: "User",
       required: true,
     },
+    owner: {
+      name: { type: String },
+      location: { type: String },
+      phone: { type: String },
+      email: { type: String },
+    },
+
     status: {
       type: String,
       enum: ["pending", "approved"],
@@ -888,6 +915,7 @@ export default router;
 ## File: models/galleryItem.js
 ```javascript
 // models/galleryItem.js - Add previousData field
+import e from "express";
 import mongoose from "mongoose";
 
 const galleryItemSchema = mongoose.Schema({
@@ -906,6 +934,13 @@ const galleryItemSchema = mongoose.Schema({
     ref: "User",
     required: true,
   },
+  owner: {
+    name: { type: String },
+    location: { type: String },
+    phone: { type: String },
+    email: { type: String },
+  },
+
   status: { type: String, enum: ["pending", "approved"], default: "pending" },
   // Add previous data tracking
   previousData: { type: Object },
@@ -1021,7 +1056,15 @@ export async function postGalleryItem(req, res) {
       location: req.body.location,
       description: req.body.description,
       harvestDay: req.body.harvestDay,
-      userId: user._id, // FIXED: Use user from req.user
+      userId: user._id,
+      owner: {
+        name: user.firstName + " " + user.lastName,
+        location: user.location,
+        phone: user.phone,
+        email: user.email,
+      },
+
+      // FIXED: Use user from req.user
       status: "pending",
       // FIXED: Image is optional
       image:
@@ -1157,7 +1200,8 @@ export async function getApprovedGalleryItems(req, res) {
       createdAt: -1,
     });
 
-    console.log(`Found ${approvedItems.length} approved gallery items`);
+    //console.log(`Found ${approvedItems.length} approved gallery items`);
+    console.log(approvedItems);
 
     res.status(200).json({
       success: true,
@@ -1474,6 +1518,12 @@ export async function createOffer(req, res) {
       harvestDay,
       condition: req.body.condition || [],
       userId: user._id,
+      owner: {
+        name: user.firstName + " " + user.lastName,
+        location: user.location,
+        phone: user.phone,
+        email: user.email,
+      },
       status: "pending",
       // Image is optional - set default if not provided
       image:

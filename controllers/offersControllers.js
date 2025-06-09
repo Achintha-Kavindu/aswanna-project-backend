@@ -57,6 +57,12 @@ export async function createOffer(req, res) {
       harvestDay,
       condition: req.body.condition || [],
       userId: user._id,
+      owner: {
+        name: user.firstName + " " + user.lastName,
+        location: user.location,
+        phone: user.phone,
+        email: user.email,
+      },
       status: "pending",
       // Image is optional - set default if not provided
       image:
